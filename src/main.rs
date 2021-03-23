@@ -19,7 +19,7 @@ fn main() {
         let stdin = io::stdin();
         for line in stdin.lock().lines() {
             let line = line.expect("Could not read line from standard in");
-            websocket.write_message(Message::text(line)).unwrap();
+            websocket.write_message(Message::text(line + "\n")).unwrap();
         }
         break;
     }
