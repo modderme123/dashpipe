@@ -12,11 +12,13 @@ use tungstenite::{server::accept, WebSocket};
 use fork::{chdir, close_fd, fork, setsid, Fork};
 
 fn forward(mut a: TcpStream, mut b: WebSocket<TcpStream>) {
-    b.write_message(Message::text("welcome")).unwrap();
+    let mut buffer = [0u8; 256];
     loop {
-        let mut buffer = String::new();
-        a.read_to_string(&mut buffer).unwrap();
-        b.write_message(Message::text(buffer)).unwrap();
+        let bytes = a.read(&mut buffer[..]).unwrap();
+        if bytes > 0 {
+            b.write_message(Message::binary(buffer[0..bytes].to_vec()))
+                .unwrap();
+        }
     }
 }
 
@@ -28,28 +30,30 @@ fn run_daemon() {
 
     for stream in server.incoming() {
         let stream = stream.unwrap();
-        match accept(stream.try_clone().unwrap()) {
-            Ok(mut ws) => {
-                let name = "tmpname1232";
-                if let Some(socket) = cli_sockets.remove(name) {
-                    std::thread::spawn(move || forward(socket, ws));
-                } else {
-                    web_sockets.insert(name, ws);
-                }
+        let mut front = [0u8; 14];
+        stream.peek(&mut front).expect("peek failed");
+        if front == b"GET / HTTP/1.1".to_owned() {
+            let ws = accept(stream.try_clone().unwrap()).unwrap();
+
+            let name = "tmpname1232";
+            if let Some(socket) = cli_sockets.remove(name) {
+                std::thread::spawn(move || forward(socket, ws));
+            } else {
+                web_sockets.insert(name, ws);
             }
-            Err(_) => {
-                let name = "tmpname1232";
-                if let Some(ws) = web_sockets.remove(name) {
-                    std::thread::spawn(move || forward(stream, ws));
-                } else {
-                    cli_sockets.insert(name, stream);
-                }
+        } else {
+            let name = "tmpname1232";
+            if let Some(ws) = web_sockets.remove(name) {
+                std::thread::spawn(move || forward(stream, ws));
+            } else {
+                cli_sockets.insert(name, stream);
             }
         }
     }
 }
 
 fn client(mut stream: TcpStream) {
+    stream.write(b"welcome, testing 123").unwrap();
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
         stream.write(line.unwrap().as_bytes()).unwrap();
@@ -81,11 +85,10 @@ fn main() {
                 println!("[daemon] starting");
                 if let Ok(_) = setsid() {
                     chdir().unwrap();
-                    // close_fd().unwrap();
+                    close_fd().unwrap();
                     if let Ok(Fork::Child) = fork() {
                         run_daemon();
                     }
-                    // Do we care about the parent here??
                 }
             }
         },
