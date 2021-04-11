@@ -1,4 +1,5 @@
 use clap::App;
+use fork::{chdir, close_fd, fork, setsid, Fork};
 use futures_util::{io::AsyncWriteExt as AsyncWriteExt2, SinkExt, StreamExt};
 use std::{collections::HashMap, error::Error, thread::sleep, time::Duration};
 use tokio::{
@@ -7,8 +8,6 @@ use tokio::{
 };
 use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
 use tokio_util::{compat::TokioAsyncWriteCompatExt, io::ReaderStream};
-
-use fork::{chdir, close_fd, fork, setsid, Fork};
 
 async fn forward(mut a: TcpStream, mut b: WebSocketStream<TcpStream>) {
     let mut buffer = [0u8; 256];
@@ -32,7 +31,7 @@ async fn run_daemon() {
     while let Ok((stream, _)) = server.accept().await {
         let mut front = [0u8; 14];
         stream.peek(&mut front).await.expect("peek failed");
-        if front == b"GET / HTTP/1.1".to_owned() {
+        if front == *b"GET / HTTP/1.1" {
             let ws = accept_async(stream).await.unwrap();
 
             let name = "tmpname1232";
@@ -72,7 +71,7 @@ fn main() {
         .about("Pipes command line data to dashberry.ml")
         .get_matches();
 
-    if let Err(_) = client() {
+    if client().is_err() {
         match fork().unwrap() {
             Fork::Parent(_) => {
                 println!("Starting daemon and sleeping 500ms");
@@ -81,7 +80,7 @@ fn main() {
             }
             Fork::Child => {
                 println!("[daemon] starting");
-                if let Ok(_) = setsid() {
+                if setsid().is_ok() {
                     chdir().unwrap();
                     close_fd().unwrap();
                     if let Ok(Fork::Child) = fork() {
