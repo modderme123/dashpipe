@@ -8,6 +8,9 @@ edition = "2018"
 
 [dependencies]
 clap = "2.33"
-tungstenite = "*"
 crossbeam = "*"
 fork = "*"
+futures-util = {version = "*", features = ["io"]}
+tokio = {version = "*", features = ["full"]}
+tokio-tungstenite = "*"
+tokio-util = {version = "*", features = ["full"]}
