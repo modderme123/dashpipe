@@ -24,8 +24,8 @@ async fn forward(mut a: TcpStream, mut b: WebSocketStream<TcpStream>) {
 }
 
 #[tokio::main]
-async fn run_daemon() {
-    let server = TcpListener::bind("127.0.0.1:3030").await.unwrap();
+async fn run_daemon(port: u16) {
+    let server = TcpListener::bind(server_address(port)).await.unwrap();
 
     let mut web_sockets: HashMap<&str, WebSocketStream<TcpStream>> = HashMap::new();
     let mut cli_sockets: HashMap<&str, TcpStream> = HashMap::new();
@@ -54,8 +54,10 @@ async fn run_daemon() {
 }
 
 #[tokio::main]
-async fn client() -> Result<(), Box<dyn Error>> {
-    let mut stream = TcpStream::connect("127.0.0.1:3030").await?;
+async fn client(port: u16) -> Result<(), Box<dyn Error>> {
+    let address = server_address(port);
+    info!("client address {}", address);
+    let mut stream = TcpStream::connect(address).await?;
     info!("[client] Connected to daemon");
     stream.write(b"welcome, testing 123").await.unwrap();
     let stdin = ReaderStream::new(io::stdin());
@@ -67,32 +69,44 @@ async fn client() -> Result<(), Box<dyn Error>> {
 }
 
 fn main() {
-    App::new("DashPipe")
+    let matches = App::new("DashPipe")
         .version("0.1")
         .author("Modder Me <modderme123@gmail.com>")
         .about("Pipes command line data to dashberry.ml")
+        .args_from_usage("--port=[port] 'localhost port for daemon")
         .get_matches();
 
     // env_logger::init();
     Builder::new().filter_level(LevelFilter::Info).init(); // for now turn all all logging
 
-    if client().is_err() {
+    let port_str = matches.value_of("port").unwrap_or("3030");
+    let port: u16 = port_str.parse().unwrap();
+    
+
+    if client(port).is_err() {
         match fork().unwrap() {
             Fork::Parent(_) => {
                 debug!("Starting daemon and sleeping 500ms");
                 sleep(Duration::from_millis(500));
-                client().unwrap();
+                client(port).unwrap();
             }
             Fork::Child => {
                 info!("[daemon] starting");
                 if setsid().is_ok() {
                     chdir().unwrap();
-                    close_fd().unwrap();
+                    close_fd().unwrap();    // comment out to enable debug logging in daemon
                     if let Ok(Fork::Child) = fork() {
-                        run_daemon();
+                        run_daemon(port);
                     }
                 }
             }
         }
     }
+}
+
+
+fn server_address(port: u16) -> String {
+    let mut address = "localhost:".to_owned();
+    address.push_str(&port.to_string());
+    address
 }
