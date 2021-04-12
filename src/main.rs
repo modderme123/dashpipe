@@ -1,6 +1,8 @@
 use clap::App;
+use env_logger::Builder;
 use fork::{chdir, close_fd, fork, setsid, Fork};
 use futures_util::{io::AsyncWriteExt as AsyncWriteExt2, SinkExt, StreamExt};
+use log::*;
 use std::{collections::HashMap, error::Error, thread::sleep, time::Duration};
 use tokio::{
     io::{self, AsyncReadExt, AsyncWriteExt},
@@ -54,7 +56,7 @@ async fn run_daemon() {
 #[tokio::main]
 async fn client() -> Result<(), Box<dyn Error>> {
     let mut stream = TcpStream::connect("127.0.0.1:3030").await?;
-    println!("[client] Connected to daemon");
+    info!("[client] Connected to daemon");
     stream.write(b"welcome, testing 123").await.unwrap();
     let stdin = ReaderStream::new(io::stdin());
     stdin
@@ -71,15 +73,18 @@ fn main() {
         .about("Pipes command line data to dashberry.ml")
         .get_matches();
 
+    // env_logger::init();
+    Builder::new().filter_level(LevelFilter::Info).init(); // for now turn all all logging
+
     if client().is_err() {
         match fork().unwrap() {
             Fork::Parent(_) => {
-                println!("Starting daemon and sleeping 500ms");
+                debug!("Starting daemon and sleeping 500ms");
                 sleep(Duration::from_millis(500));
                 client().unwrap();
             }
             Fork::Child => {
-                println!("[daemon] starting");
+                info!("[daemon] starting");
                 if setsid().is_ok() {
                     chdir().unwrap();
                     close_fd().unwrap();
