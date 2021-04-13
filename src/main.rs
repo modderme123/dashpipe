@@ -1,4 +1,4 @@
-use clap::App;
+use clap::{App, Arg};
 use fork::{chdir, close_fd, fork, setsid, Fork};
 use futures_util::{io::AsyncWriteExt as AsyncWriteExt2, StreamExt};
 use log::*;
@@ -83,7 +83,19 @@ fn main() {
         .version("0.1")
         .author("Modder Me <modderme123@gmail.com>")
         .about("Pipes command line data to dashberry.ml")
-        .args_from_usage("--port=[port] 'localhost port for daemon")
+        .arg(
+            Arg::with_name("port")
+                .long("port")
+                .help("localhost port for daemon")
+                .value_name("port")
+                .takes_value(true)
+                .default_value("3030"),
+        )
+        .arg_from_usage("--title=[title] 'title of data set'")
+        .arg_from_usage("--dashboard=[dashboard] 'name of dashboard that will display the data'")
+        .arg_from_usage("--chart=[chart] 'name of chart that will display the data'")
+        .arg_from_usage("--no-show 'send the data without displaying it'")
+        .arg_from_usage("--append 'append data to an existing chart'")
         .get_matches();
 
     // env_logger::init();
