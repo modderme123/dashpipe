@@ -13,9 +13,7 @@ use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
 use tokio_util::{compat::TokioAsyncWriteCompatExt, io::ReaderStream};
 
 fn server_address(port: u16) -> String {
-    let mut address = "localhost:".to_owned();
-    address.push_str(&port.to_string());
-    address
+    format!("localhost:{}", port)
 }
 
 async fn forward(a: TcpStream, b: WebSocketStream<TcpStream>) {
