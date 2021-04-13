@@ -1,26 +1,18 @@
 use clap::App;
 use fork::{chdir, close_fd, fork, setsid, Fork};
-use futures_util::{io::AsyncWriteExt as AsyncWriteExt2, SinkExt, StreamExt};
+use futures_util::{io::AsyncWriteExt as AsyncWriteExt2, StreamExt};
 use log::*;
 use std::{collections::HashMap, error::Error, thread::sleep, time::Duration};
 use tokio::{
-    io::{self, AsyncReadExt, AsyncWriteExt},
+    io::{self, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
 use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
 use tokio_util::{compat::TokioAsyncWriteCompatExt, io::ReaderStream};
-use Vec;
 
-async fn forward(mut a: TcpStream, mut b: WebSocketStream<TcpStream>) {
-    let mut buffer = [0u8; 256];
-    loop {
-        let bytes = a.read(&mut buffer[..]).await.unwrap();
-        if bytes > 0 {
-            b.send(Message::binary(buffer[0..bytes].to_vec()))
-                .await
-                .unwrap();
-        }
-    }
+async fn forward(a: TcpStream, b: WebSocketStream<TcpStream>) {
+    let message_stream = ReaderStream::new(a).map(|x| Ok(Message::binary(x.unwrap().to_vec())));
+    message_stream.forward(b).await.unwrap();
 }
 
 #[tokio::main]
