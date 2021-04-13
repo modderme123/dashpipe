@@ -1,5 +1,4 @@
 use clap::App;
-use env_logger::Builder;
 use fork::{chdir, close_fd, fork, setsid, Fork};
 use futures_util::{io::AsyncWriteExt as AsyncWriteExt2, SinkExt, StreamExt};
 use log::*;
@@ -10,6 +9,7 @@ use tokio::{
 };
 use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
 use tokio_util::{compat::TokioAsyncWriteCompatExt, io::ReaderStream};
+use Vec;
 
 async fn forward(mut a: TcpStream, mut b: WebSocketStream<TcpStream>) {
     let mut buffer = [0u8; 256];
@@ -53,13 +53,31 @@ async fn run_daemon(port: u16) {
     }
 }
 
+/*
+ * protocol for header message to browser
+ *    [version number (16 bits)] [json length 16 bits] [header: json utf8]
+*/
+const PROTOCOL_VERSION: [u8; 2] = (1u16).to_be_bytes();
+use serde_json::{json, to_vec};
+
 #[tokio::main]
 async fn client(port: u16) -> Result<(), Box<dyn Error>> {
     let address = server_address(port);
-    info!("client address {}", address);
-    let mut stream = TcpStream::connect(address).await?;
-    info!("[client] Connected to daemon");
-    stream.write(b"welcome, testing 123").await.unwrap();
+    let mut stream = TcpStream::connect(&address).await?;
+    info!("[client] Connected to daemon {}", address);
+    let mut header = Vec::new();
+    let header_js = json!({
+        "title": "fred"
+    });
+    let header_str = to_vec(&header_js)?;
+    let length = header_str.len() as u16;
+    let length_bytes = length.to_be_bytes();
+
+    header.extend_from_slice(&PROTOCOL_VERSION);
+    header.extend_from_slice(&length_bytes);
+    header.extend_from_slice(&header_str);
+
+    stream.write(&header).await.unwrap();
     let stdin = ReaderStream::new(io::stdin());
     stdin
         .forward(stream.compat_write().into_sink())
@@ -77,11 +95,10 @@ fn main() {
         .get_matches();
 
     // env_logger::init();
-    Builder::new().filter_level(LevelFilter::Info).init(); // for now turn all all logging
+    env_logger::builder().filter_level(LevelFilter::Info).init(); // for now turn all all logging
 
     let port_str = matches.value_of("port").unwrap_or("3030");
     let port: u16 = port_str.parse().unwrap();
-    
 
     if client(port).is_err() {
         match fork().unwrap() {
@@ -94,7 +111,7 @@ fn main() {
                 info!("[daemon] starting");
                 if setsid().is_ok() {
                     chdir().unwrap();
-                    close_fd().unwrap();    // comment out to enable debug logging in daemon
+                    close_fd().unwrap(); // comment out to enable debug logging in daemon
                     if let Ok(Fork::Child) = fork() {
                         run_daemon(port);
                     }
@@ -103,7 +120,6 @@ fn main() {
         }
     }
 }
-
 
 fn server_address(port: u16) -> String {
     let mut address = "localhost:".to_owned();
