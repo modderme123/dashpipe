@@ -115,7 +115,7 @@ fn main() {
     // env_logger::init();
     env_logger::builder().filter_level(LevelFilter::Info).init(); // for now turn all all logging
 
-    let port_str = arg_matches.value_of("port").unwrap_or("3030");
+    let port_str = arg_matches.value_of("port").unwrap();
     let port: u16 = port_str.parse().unwrap();
     let pipe_args = PipeArgs {
         title: arg_matches.value_of("title").map(str::to_owned),
