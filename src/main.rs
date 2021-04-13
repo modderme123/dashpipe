@@ -77,12 +77,12 @@ async fn client(port: u16) -> Result<(), Box<dyn Error>> {
     header.extend_from_slice(&length_bytes);
     header.extend_from_slice(&header_str);
 
-    stream.write(&header).await.unwrap();
+    stream.write(&header).await.expect("Couldn't send header");
     let stdin = ReaderStream::new(io::stdin());
     stdin
         .forward(stream.compat_write().into_sink())
         .await
-        .unwrap();
+        .expect("Couldn't forward stream");
     Ok(())
 }
 
