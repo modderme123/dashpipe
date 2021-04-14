@@ -113,7 +113,7 @@ fn main() {
         .get_matches();
 
     // env_logger::init();
-    env_logger::builder().filter_level(LevelFilter::Info).init(); // for now turn all all logging
+    env_logger::builder().filter_level(LevelFilter::Info).init(); // for now set logging level in code
 
     let port_str = arg_matches.value_of("port").unwrap();
     let port: u16 = port_str.parse().unwrap();
