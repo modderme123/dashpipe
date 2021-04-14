@@ -17,7 +17,9 @@ fn server_address(port: u16) -> String {
 }
 
 async fn forward(a: TcpStream, b: WebSocketStream<TcpStream>) {
-    let message_stream = ReaderStream::new(a).map(|x| Ok(Message::binary(x.unwrap().to_vec())));
+    let reader_stream = ReaderStream::new(a);
+    let logged_stream = reader_stream.map(|x| {info!("{:?}", x); x});
+    let message_stream = logged_stream.map(|x| Ok(Message::binary(x.unwrap().to_vec())));
     message_stream.forward(b).await.unwrap();
 }
 
@@ -128,7 +130,7 @@ fn main() {
     if client(port, &pipe_args).is_err() {
         match fork().unwrap() {
             Fork::Parent(_) => {
-                debug!("Starting daemon and sleeping 500ms");
+                debug!("Starting daemon and sleeping 500ms"); // TODO fix race condition
                 sleep(Duration::from_millis(500));
                 client(port, &pipe_args).unwrap();
             }
@@ -136,7 +138,7 @@ fn main() {
                 info!("[daemon] starting");
                 if setsid().is_ok() {
                     chdir().unwrap();
-                    close_fd().unwrap(); // comment out to enable debug logging in daemon
+                    // close_fd().unwrap(); // comment out to enable debug logging in daemon
                     if let Ok(Fork::Child) = fork() {
                         run_daemon(port);
                     }
