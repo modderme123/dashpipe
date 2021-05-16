@@ -1,5 +1,5 @@
 use clap::{App, Arg};
-use fork::{chdir, close_fd, fork, setsid, Fork};
+use fork::{chdir, fork, setsid, Fork};
 use futures_util::{io::AsyncWriteExt as AsyncWriteExt2, StreamExt};
 use log::*;
 use serde::{Deserialize, Serialize};
@@ -18,9 +18,10 @@ fn server_address(port: u16) -> String {
 
 async fn forward(a: TcpStream, b: WebSocketStream<TcpStream>) {
     let reader_stream = ReaderStream::new(a);
-    let logged_stream = reader_stream.map(|x| {info!("{:?}", x); x});
+    let logged_stream = reader_stream.map(|x| {info!("[server] {:?}", x); x});
     let message_stream = logged_stream.map(|x| Ok(Message::binary(x.unwrap().to_vec())));
-    message_stream.forward(b).await.unwrap();
+    let logged_messages = message_stream.map(|m| {info!("[server] message"); m});
+    logged_messages.forward(b).await.unwrap();
 }
 
 #[tokio::main]
@@ -79,7 +80,7 @@ async fn client(port: u16, args: &PipeArgs) -> Result<(), Box<dyn Error>> {
     let length = header_vec.len() as u16;
     let length_bytes = length.to_be_bytes();
     let header_str = serde_json::to_string(&args)?;
-    info!("header: {}", &header_str);
+    info!("[client] header: {}", &header_str);
 
     header.extend_from_slice(&PROTOCOL_VERSION);
     header.extend_from_slice(&length_bytes);
@@ -140,6 +141,7 @@ fn main() {
                     chdir().unwrap();
                     // close_fd().unwrap(); // comment out to enable debug logging in daemon
                     if let Ok(Fork::Child) = fork() {
+                        println!("[forked] foo");
                         run_daemon(port);
                     }
                 }
