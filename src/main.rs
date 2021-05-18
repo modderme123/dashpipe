@@ -5,23 +5,39 @@ use log::*;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use std::{collections::HashMap, error::Error, thread::sleep, time::Duration};
-use tokio::{
-    io::{self, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
-};
+use tokio::{io::{self, AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
 use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
 use tokio_util::{compat::TokioAsyncWriteCompatExt, io::ReaderStream};
+use futures_util::SinkExt;
 
 fn server_address(port: u16) -> String {
     format!("localhost:{}", port)
 }
 
-async fn forward(a: TcpStream, b: WebSocketStream<TcpStream>) {
+async fn forward(mut a: TcpStream, mut b: WebSocketStream<TcpStream>) {
+    let version = a.read_u16().await.unwrap();
+    assert_eq!(version, 1);
+    let header_size = a.read_u16().await.unwrap() ;
+    let mut buf = vec![0u8; header_size as usize];
+    let header_json = a.read_exact(&mut buf).await.unwrap();
+    info!("[server] received header size {}",header_size);
+    info!("[server] received header {:?}",header_json);
+    let mut header_buffer = vec![0u8; header_size as usize + 4];
+    header_buffer[0..2].copy_from_slice(&version.to_be_bytes());
+    header_buffer[2..4].copy_from_slice(&header_size.to_be_bytes());
+    header_buffer[4..].copy_from_slice(&buf);
+
+    info!("[server] header buffer: {:?}", &header_buffer);
+
+    let header_message = Message::binary(header_buffer);
+    b.send(header_message).await.unwrap();
+
     let reader_stream = ReaderStream::new(a);
     let logged_stream = reader_stream.map(|x| {info!("[server] {:?}", x); x});
     let message_stream = logged_stream.map(|x| Ok(Message::binary(x.unwrap().to_vec())));
     let logged_messages = message_stream.map(|m| {info!("[server] message"); m});
     logged_messages.forward(b).await.unwrap();
+    info!("[server] done");
 }
 
 #[tokio::main]
