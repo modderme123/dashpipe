@@ -10,7 +10,6 @@ use std::{error::Error, thread::sleep, time::Duration};
 use tokio::{
     io::{self, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
-    task::JoinHandle,
 };
 
 use futures_util::stream::FuturesUnordered;
@@ -18,6 +17,8 @@ use futures_util::TryFutureExt;
 use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
 use tokio_util::{compat::TokioAsyncWriteCompatExt, io::ReaderStream};
 // use futures_util::future::select_all;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 fn server_address(port: u16) -> String {
     format!("localhost:{}", port)
@@ -55,37 +56,35 @@ async fn forward(mut a: TcpStream, mut b: WebSocketStream<TcpStream>) {
     info!("[server] done");
 }
 
+type DynFuture = dyn Future<Output = ()> + Unpin;
+type BoxDynFuture = Box<DynFuture>;
+
 #[tokio::main]
 async fn run_daemon(port: u16) {
     let server = TcpListener::bind(server_address(port)).await.unwrap();
 
-    let mut web_sockets: HashMap<&str, WebSocketStream<TcpStream>> = HashMap::new();
-    let mut cli_sockets: HashMap<&str, TcpStream> = HashMap::new();
-    // let mut forwards:Vec<JoinHandle<()>> = Vec::new();
-    let mut waits:FuturesUnordered<_> = FuturesUnordered::new();
-    let to_connect = |cxn| handle_connect(cxn, web_sockets, cli_sockets);
+    let web_sockets: HashMap<&str, WebSocketStream<TcpStream>> = HashMap::new();
+    let cli_sockets: HashMap<&str, TcpStream> = HashMap::new();
+    let mut waits: FuturesUnordered<BoxDynFuture> = FuturesUnordered::new();
+    let web_ref = Arc::new(Mutex::new(web_sockets));
+    let cli_ref = Arc::new(Mutex::new(cli_sockets));
 
     let listen = || {
         let conn = server
             .accept()
-            .map_ok(|cxn| handle_connect(cxn, web_sockets, cli_sockets));
-        waits.push(conn);
+            .map_ok(|cxn| handle_connect(cxn, web_ref.clone(), cli_ref.clone()));
+
+        let df:DynFuture = conn.into();
+        let bdf = Box::new(df);
+        waits.push(bdf);
     };
 
     listen();
 
     loop {
         match waits.next().await {
-            Some(Ok(x)) => {
-                println!("foo");
-                let conn = server
-                    .accept()
-                    .map_ok(|cxn| handle_connect(cxn, web_sockets, cli_sockets));
-                waits.push(conn);
-            }
-            Some(Err(e)) => {
-                println!("done {:?}", e);
-                break;
+            Some(_) => {
+                listen();
             }
             None => {
                 println!("unexpected end");
@@ -97,10 +96,13 @@ async fn run_daemon(port: u16) {
 
 async fn handle_connect(
     cxn: (TcpStream, SocketAddr),
-    mut web_sockets: HashMap<&str, WebSocketStream<TcpStream>>,
-    mut cli_sockets: HashMap<&str, TcpStream>,
+    web_sockets_ref: Arc<Mutex<HashMap<&str, WebSocketStream<TcpStream>>>>,
+    cli_sockets_ref: Arc<Mutex<HashMap<&str, TcpStream>>>,
 ) {
     let (stream, _) = cxn;
+    let mut cli_sockets = cli_sockets_ref.lock().await;
+    let mut web_sockets = web_sockets_ref.lock().await;
+
     let mut front = [0u8; 14];
     stream.peek(&mut front).await.expect("peek failed");
     if front == *b"GET / HTTP/1.1" {
