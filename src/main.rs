@@ -1,14 +1,23 @@
 use clap::{App, Arg};
 use fork::{chdir, fork, setsid, Fork};
 use futures_util::{io::AsyncWriteExt as AsyncWriteExt2, StreamExt};
+use futures_util::{Future, SinkExt};
 use log::*;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
-use std::{collections::HashMap, error::Error, thread::sleep, time::Duration};
-use tokio::{io::{self, AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
+use std::{collections::HashMap, net::SocketAddr};
+use std::{error::Error, thread::sleep, time::Duration};
+use tokio::{
+    io::{self, AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+    task::JoinHandle,
+};
+
+use futures_util::stream::FuturesUnordered;
+use futures_util::TryFutureExt;
 use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
 use tokio_util::{compat::TokioAsyncWriteCompatExt, io::ReaderStream};
-use futures_util::SinkExt;
+// use futures_util::future::select_all;
 
 fn server_address(port: u16) -> String {
     format!("localhost:{}", port)
@@ -17,11 +26,11 @@ fn server_address(port: u16) -> String {
 async fn forward(mut a: TcpStream, mut b: WebSocketStream<TcpStream>) {
     let version = a.read_u16().await.unwrap();
     assert_eq!(version, 1);
-    let header_size = a.read_u16().await.unwrap() ;
+    let header_size = a.read_u16().await.unwrap();
     let mut buf = vec![0u8; header_size as usize];
     let header_json = a.read_exact(&mut buf).await.unwrap();
-    info!("[server] received header size {}",header_size);
-    info!("[server] received header {:?}",header_json);
+    info!("[server] received header size {}", header_size);
+    info!("[server] received header {:?}", header_json);
     let mut header_buffer = vec![0u8; header_size as usize + 4];
     header_buffer[0..2].copy_from_slice(&version.to_be_bytes());
     header_buffer[2..4].copy_from_slice(&header_size.to_be_bytes());
@@ -33,9 +42,15 @@ async fn forward(mut a: TcpStream, mut b: WebSocketStream<TcpStream>) {
     b.send(header_message).await.unwrap();
 
     let reader_stream = ReaderStream::new(a);
-    let logged_stream = reader_stream.map(|x| {info!("[server] {:?}", x); x});
+    let logged_stream = reader_stream.map(|x| {
+        info!("[server] {:?}", x);
+        x
+    });
     let message_stream = logged_stream.map(|x| Ok(Message::binary(x.unwrap().to_vec())));
-    let logged_messages = message_stream.map(|m| {info!("[server] message"); m});
+    let logged_messages = message_stream.map(|m| {
+        info!("[server] message");
+        m
+    });
     logged_messages.forward(b).await.unwrap();
     info!("[server] done");
 }
@@ -46,26 +61,65 @@ async fn run_daemon(port: u16) {
 
     let mut web_sockets: HashMap<&str, WebSocketStream<TcpStream>> = HashMap::new();
     let mut cli_sockets: HashMap<&str, TcpStream> = HashMap::new();
+    // let mut forwards:Vec<JoinHandle<()>> = Vec::new();
+    let mut waits:FuturesUnordered<_> = FuturesUnordered::new();
+    let to_connect = |cxn| handle_connect(cxn, web_sockets, cli_sockets);
 
-    while let Ok((stream, _)) = server.accept().await {
-        let mut front = [0u8; 14];
-        stream.peek(&mut front).await.expect("peek failed");
-        if front == *b"GET / HTTP/1.1" {
-            let ws = accept_async(stream).await.unwrap();
+    let listen = || {
+        let conn = server
+            .accept()
+            .map_ok(|cxn| handle_connect(cxn, web_sockets, cli_sockets));
+        waits.push(conn);
+    };
 
-            let name = "tmpname1232";
-            if let Some(socket) = cli_sockets.remove(name) {
-                tokio::spawn(forward(socket, ws));
-            } else {
-                web_sockets.insert(name, ws);
+    listen();
+
+    loop {
+        match waits.next().await {
+            Some(Ok(x)) => {
+                println!("foo");
+                let conn = server
+                    .accept()
+                    .map_ok(|cxn| handle_connect(cxn, web_sockets, cli_sockets));
+                waits.push(conn);
             }
+            Some(Err(e)) => {
+                println!("done {:?}", e);
+                break;
+            }
+            None => {
+                println!("unexpected end");
+                break;
+            }
+        }
+    }
+}
+
+async fn handle_connect(
+    cxn: (TcpStream, SocketAddr),
+    mut web_sockets: HashMap<&str, WebSocketStream<TcpStream>>,
+    mut cli_sockets: HashMap<&str, TcpStream>,
+) {
+    let (stream, _) = cxn;
+    let mut front = [0u8; 14];
+    stream.peek(&mut front).await.expect("peek failed");
+    if front == *b"GET / HTTP/1.1" {
+        let ws = accept_async(stream).await.unwrap();
+
+        let name = "tmpname1232";
+        if let Some(socket) = cli_sockets.remove(name) {
+            let handle = tokio::spawn(forward(socket, ws));
+            // waits.push(handle);
         } else {
-            let name = "tmpname1232";
-            if let Some(ws) = web_sockets.remove(name) {
-                tokio::spawn(forward(stream, ws));
-            } else {
-                cli_sockets.insert(name, stream);
-            }
+            web_sockets.insert(name, ws);
+        }
+    } else {
+        let name = "tmpname1232";
+        if let Some(ws) = web_sockets.remove(name) {
+            let handle = tokio::spawn(forward(stream, ws));
+            // waits.push(handle);
+        } else {
+            cli_sockets.insert(name, stream);
         }
     }
 }
