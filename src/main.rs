@@ -1,7 +1,7 @@
 use clap::{App, Arg};
 use fork::{chdir, fork, setsid, Fork};
 use futures_util::{io::AsyncWriteExt as AsyncWriteExt2, StreamExt};
-use futures_util::{Future, SinkExt};
+use futures_util::{SinkExt};
 use log::*;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
@@ -10,10 +10,8 @@ use std::{error::Error, thread::sleep, time::Duration};
 use tokio::{io::{self, AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, task::JoinHandle};
 
 use futures_util::stream::FuturesUnordered;
-use futures_util::TryFutureExt;
 use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
 use tokio_util::{compat::TokioAsyncWriteCompatExt, io::ReaderStream};
-// use futures_util::future::select_all;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -59,7 +57,7 @@ async fn run_daemon(port: u16) {
 
     let web_sockets: HashMap<&str, WebSocketStream<TcpStream>> = HashMap::new();
     let cli_sockets: HashMap<&str, TcpStream> = HashMap::new();
-    // let mut waits= FuturesUnordered::new();
+    let mut waits= FuturesUnordered::new();
     let web_ref = Arc::new(Mutex::new(web_sockets));
     let cli_ref = Arc::new(Mutex::new(cli_sockets));
 
@@ -67,6 +65,13 @@ async fn run_daemon(port: u16) {
         tokio::select! {
             Ok(cxn) = server.accept() => {
               let fwd = handle_connect(cxn, web_ref.clone(), cli_ref.clone()).await;
+              match fwd {
+                  Some(join_handle) => waits.push(join_handle),
+                  _ => ()
+              }
+            },
+            Some(x) = waits.next() => {
+                println!("[daemon loop] fwd complete, {:?}", x);
             }
         }
     }
