@@ -13,19 +13,17 @@ use tokio::{
 use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
 use tokio_util::io::ReaderStream;
 
-/** Forward a protocol stream from a command line client to a browser websocket.
- * The protocol header is parsed from the command line client and sent in a single
- * websocket message. Data follows in one or more websocket messages. */
-async fn forward(mut a: TcpStream, mut b: WebSocketStream<TcpStream>) {
-    let header = proto::parse_header(&mut a).await;
-    let header_buffer = proto::header_to_bytes(&header);
-    let header_message = Message::binary(header_buffer);
-    b.send(header_message).await.unwrap();
 
-    let reader_stream = ReaderStream::new(a);
-    let message_stream = reader_stream.map(|x| Ok(Message::binary(x.unwrap().to_vec())));
-    message_stream.forward(b).await.unwrap();
-    debug!("[forward] done");
+#[derive(Debug, Default)]
+struct Connections<'a> {
+  web_sockets: HashMap<&'a str, WebSocketStream<TcpStream>>,
+  cli_sockets: HashMap<&'a str, TcpStream>, 
+}
+
+impl<'a> Connections<'a> {
+  fn new() -> Connections<'a> {
+    Connections::default()
+  }    
 }
 
 /** Run a daemon server that listens for connections from command line clients and web browsers. */
@@ -34,6 +32,7 @@ pub async fn run_daemon(port: u16, once_only: bool) {
     let server = TcpListener::bind(proto::server_address(port))
         .await
         .unwrap();
+    let c = Connections::new(); 
 
     let web_sockets: HashMap<&str, WebSocketStream<TcpStream>> = HashMap::new();
     let cli_sockets: HashMap<&str, TcpStream> = HashMap::new();
@@ -60,6 +59,22 @@ pub async fn run_daemon(port: u16, once_only: bool) {
         }
     }
 }
+
+/** Forward a protocol stream from a command line client to a browser websocket.
+ * The protocol header is parsed from the command line client and sent in a single
+ * websocket message. Data follows in one or more websocket messages. */
+async fn forward(mut a: TcpStream, mut b: WebSocketStream<TcpStream>) {
+    let header = proto::parse_header(&mut a).await;
+    let header_buffer = proto::header_to_bytes(&header);
+    let header_message = Message::binary(header_buffer);
+    b.send(header_message).await.unwrap();
+
+    let reader_stream = ReaderStream::new(a);
+    let message_stream = reader_stream.map(|x| Ok(Message::binary(x.unwrap().to_vec())));
+    message_stream.forward(b).await.unwrap();
+    debug!("[forward] done");
+}
+
 
 /** Handle a connection to the daemon server from the browser or command line client.
  */
