@@ -19,10 +19,22 @@ use tokio::sync::Mutex;
 use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
 use tokio_util::{compat::TokioAsyncWriteCompatExt, io::ReaderStream};
 
+/** Protocol for header message to browser
+ *    [version number (16 bits)] [json length 16 bits] [header: json utf8]
+ */
+struct ProtocolHeader {
+    version: u16,
+    /* length: u16 // length field is in the protocol, but here we can use header_json.len() */
+    header_json: Vec<u8>,
+}
+
+const PROTOCOL_VERSION: [u8; 2] = (1u16).to_be_bytes();
+
 fn server_address(port: u16) -> String {
     format!("localhost:{}", port)
 }
 
+/** Consume a protocol header from a command line client tcp stream.  */
 async fn parse_header(input: &mut TcpStream) -> ProtocolHeader {
     let version = input.read_u16().await.unwrap();
     assert_eq!(version, 1);
@@ -38,11 +50,7 @@ async fn parse_header(input: &mut TcpStream) -> ProtocolHeader {
     }
 }
 
-struct ProtocolHeader {
-    version: u16,
-    header_json: Vec<u8>,
-}
-
+/** write a protocol header into a byte array */
 fn header_to_bytes(header: &ProtocolHeader) -> Vec<u8> {
     let json_size = header.header_json.len();
     let json_size_u16 = json_size as u16;
@@ -54,26 +62,19 @@ fn header_to_bytes(header: &ProtocolHeader) -> Vec<u8> {
     buffer
 }
 
+/** Forward a protocol stream from a command line client to a browser websocket.
+ * The protocol header is parsed from the command line client and sent in a single
+ * websocket message. Data follows in one or more websocket messages. */
 async fn forward(mut a: TcpStream, mut b: WebSocketStream<TcpStream>) {
     let header = parse_header(&mut a).await;
     let header_buffer = header_to_bytes(&header);
-    info!("[server] header buffer: {:?}", &header_buffer);
-
     let header_message = Message::binary(header_buffer);
     b.send(header_message).await.unwrap();
 
     let reader_stream = ReaderStream::new(a);
-    let logged_stream = reader_stream.map(|x| {
-        info!("[server] {:?}", x);
-        x
-    });
-    let message_stream = logged_stream.map(|x| Ok(Message::binary(x.unwrap().to_vec())));
-    let logged_messages = message_stream.map(|m| {
-        info!("[server] message");
-        m
-    });
-    logged_messages.forward(b).await.unwrap();
-    info!("[server] done");
+    let message_stream = reader_stream.map(|x| Ok(Message::binary(x.unwrap().to_vec())));
+    message_stream.forward(b).await.unwrap();
+    debug!("[forward] done");
 }
 
 #[tokio::main]
@@ -96,8 +97,9 @@ async fn run_daemon(port: u16, once_only: bool) {
               }
             },
             Some(x) = waits.next() => {
-                println!("[daemon loop] fwd complete, {:?}", x);
+                trace!("[daemon loop] fwd complete, {:?}", x);
                 if once_only {
+                    debug!("[daemon loop] quit");
                     break;
                 }
             }
@@ -105,6 +107,9 @@ async fn run_daemon(port: u16, once_only: bool) {
     }
 }
 
+/** Handle a connection to the daemon server from the browser or command line client.
+  * If matching browser 
+ */
 async fn handle_connect(
     cxn: (TcpStream, SocketAddr),
     web_sockets_ref: Arc<Mutex<HashMap<&str, WebSocketStream<TcpStream>>>>,
@@ -139,34 +144,32 @@ async fn handle_connect(
     }
 }
 
-/*
- * protocol for header message to browser
- *    [version number (16 bits)] [json length 16 bits] [header: json utf8]
-*/
-const PROTOCOL_VERSION: [u8; 2] = (1u16).to_be_bytes();
 
+/** json messages sent from client to daemon to browser */
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize)]
 struct PipeArgs {
+    dashboard: Option<String>, // This is only needed for client to daemon
+    once: Option<bool>,        // This is only needed for client to daemon
     title: Option<String>,
-    dashboard: Option<String>,
     chart: Option<String>,
     no_show: Option<bool>,
     append: Option<bool>,
-    once: Option<bool>,
 }
 
+/** cmd line client. Runs in its own OS process and terminates when it finishes
+  * forwarding its input stream to the daemon . */
 #[tokio::main]
 async fn client(port: u16, args: &PipeArgs) -> Result<(), Box<dyn Error>> {
     let address = server_address(port);
     let mut stream = TcpStream::connect(&address).await?;
-    info!("[client] Connected to daemon {}", address);
+    debug!("[client] Connected to daemon {}", address);
     let mut header = Vec::new();
     let header_vec = serde_json::to_vec(&args)?;
     let length = header_vec.len() as u16;
     let length_bytes = length.to_be_bytes();
     let header_str = serde_json::to_string(&args)?;
-    info!("[client] header: {}", &header_str);
+    debug!("[client] header: {}", &header_str);
 
     header.extend_from_slice(&PROTOCOL_VERSION);
     header.extend_from_slice(&length_bytes);
@@ -182,6 +185,30 @@ async fn client(port: u16, args: &PipeArgs) -> Result<(), Box<dyn Error>> {
 }
 
 fn main() {
+    let (pipe_args, port) = cmd_line_arguments();
+
+    if client(port, &pipe_args).is_err() {
+        match fork().unwrap() {
+            Fork::Parent(_) => {
+                debug!("Starting daemon and sleeping 500ms"); // TODO fix race condition
+                sleep(Duration::from_millis(500));
+                client(port, &pipe_args).unwrap();
+            }
+            Fork::Child => {
+                info!("[daemon] starting");
+                if setsid().is_ok() {
+                    chdir().unwrap();
+                    // close_fd().unwrap(); // comment out to enable debug logging in daemon
+                    if let Ok(Fork::Child) = fork() {
+                        run_daemon(port, pipe_args.once.unwrap_or(false));
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn cmd_line_arguments() -> (PipeArgs, u16) {
     let arg_matches = App::new("DashPipe")
         .version("0.1")
         .author("Modder Me <modderme123@gmail.com>")
@@ -215,25 +242,5 @@ fn main() {
         append: arg_matches.is_present("append").then(|| true),
         once: arg_matches.is_present("once").then(|| true),
     };
-
-    if client(port, &pipe_args).is_err() {
-        match fork().unwrap() {
-            Fork::Parent(_) => {
-                debug!("Starting daemon and sleeping 500ms"); // TODO fix race condition
-                sleep(Duration::from_millis(500));
-                client(port, &pipe_args).unwrap();
-            }
-            Fork::Child => {
-                info!("[daemon] starting");
-                if setsid().is_ok() {
-                    chdir().unwrap();
-                    // close_fd().unwrap(); // comment out to enable debug logging in daemon
-                    if let Ok(Fork::Child) = fork() {
-                        println!("[forked] foo");
-                        run_daemon(port, pipe_args.once.unwrap_or(false));
-                    }
-                }
-            }
-        }
-    }
+    (pipe_args, port)
 }
