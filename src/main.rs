@@ -1,37 +1,62 @@
 use clap::{App, Arg};
 use fork::{chdir, fork, setsid, Fork};
+use futures_util::SinkExt;
 use futures_util::{io::AsyncWriteExt as AsyncWriteExt2, StreamExt};
-use futures_util::{SinkExt};
 use log::*;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use std::{collections::HashMap, net::SocketAddr, option::Option};
 use std::{error::Error, thread::sleep, time::Duration};
-use tokio::{io::{self, AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, task::JoinHandle};
+use tokio::{
+    io::{self, AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+    task::JoinHandle,
+};
 
 use futures_util::stream::FuturesUnordered;
-use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
-use tokio_util::{compat::TokioAsyncWriteCompatExt, io::ReaderStream};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
+use tokio_util::{compat::TokioAsyncWriteCompatExt, io::ReaderStream};
 
 fn server_address(port: u16) -> String {
     format!("localhost:{}", port)
 }
 
-async fn forward(mut a: TcpStream, mut b: WebSocketStream<TcpStream>) {
-    let version = a.read_u16().await.unwrap();
+async fn parse_header(input: &mut TcpStream) -> ProtocolHeader {
+    let version = input.read_u16().await.unwrap();
     assert_eq!(version, 1);
-    let header_size = a.read_u16().await.unwrap();
-    let mut buf = vec![0u8; header_size as usize];
-    let header_json = a.read_exact(&mut buf).await.unwrap();
+    let header_size = input.read_u16().await.unwrap();
+    let mut header_json = vec![0u8; header_size as usize];
+    let header_json_bytes = input.read_exact(&mut header_json).await.unwrap();
     info!("[server] received header size {}", header_size);
-    info!("[server] received header {:?}", header_json);
-    let mut header_buffer = vec![0u8; header_size as usize + 4];
-    header_buffer[0..2].copy_from_slice(&version.to_be_bytes());
-    header_buffer[2..4].copy_from_slice(&header_size.to_be_bytes());
-    header_buffer[4..].copy_from_slice(&buf);
+    info!("[server] received header {:?}", header_json_bytes);
 
+    ProtocolHeader {
+        version,
+        header_json,
+    }
+}
+
+struct ProtocolHeader {
+    version: u16,
+    header_json: Vec<u8>,
+}
+
+fn header_to_bytes(header: &ProtocolHeader) -> Vec<u8> {
+    let json_size = header.header_json.len();
+    let json_size_u16 = json_size as u16;
+    let mut buffer = vec![0u8; json_size + 4];
+    buffer[0..2].copy_from_slice(&header.version.to_be_bytes());
+    buffer[2..4].copy_from_slice(&json_size_u16.to_be_bytes());
+    buffer[4..].copy_from_slice(&header.header_json);
+
+    buffer
+}
+
+async fn forward(mut a: TcpStream, mut b: WebSocketStream<TcpStream>) {
+    let header = parse_header(&mut a).await;
+    let header_buffer = header_to_bytes(&header);
     info!("[server] header buffer: {:?}", &header_buffer);
 
     let header_message = Message::binary(header_buffer);
@@ -57,7 +82,7 @@ async fn run_daemon(port: u16, once_only: bool) {
 
     let web_sockets: HashMap<&str, WebSocketStream<TcpStream>> = HashMap::new();
     let cli_sockets: HashMap<&str, TcpStream> = HashMap::new();
-    let mut waits= FuturesUnordered::new();
+    let mut waits = FuturesUnordered::new();
     let web_ref = Arc::new(Mutex::new(web_sockets));
     let cli_ref = Arc::new(Mutex::new(cli_sockets));
 
@@ -97,7 +122,7 @@ async fn handle_connect(
         let name = "tmpname1232";
         if let Some(socket) = cli_sockets.remove(name) {
             let handle = tokio::spawn(forward(socket, ws));
-            return Some(handle)
+            return Some(handle);
         } else {
             web_sockets.insert(name, ws);
             return None;
@@ -128,7 +153,7 @@ struct PipeArgs {
     chart: Option<String>,
     no_show: Option<bool>,
     append: Option<bool>,
-    once: Option<bool>
+    once: Option<bool>,
 }
 
 #[tokio::main]
