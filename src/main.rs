@@ -5,12 +5,9 @@ use futures_util::{Future, SinkExt};
 use log::*;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
-use std::{collections::HashMap, net::SocketAddr};
+use std::{collections::HashMap, net::SocketAddr, option::Option};
 use std::{error::Error, thread::sleep, time::Duration};
-use tokio::{
-    io::{self, AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
-};
+use tokio::{io::{self, AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, task::JoinHandle};
 
 use futures_util::stream::FuturesUnordered;
 use futures_util::TryFutureExt;
@@ -56,42 +53,20 @@ async fn forward(mut a: TcpStream, mut b: WebSocketStream<TcpStream>) {
     info!("[server] done");
 }
 
-type DynFuture = dyn Future<Output = ()> + Unpin;
-type BoxDynFuture = Box<DynFuture>;
-
 #[tokio::main]
 async fn run_daemon(port: u16) {
     let server = TcpListener::bind(server_address(port)).await.unwrap();
 
     let web_sockets: HashMap<&str, WebSocketStream<TcpStream>> = HashMap::new();
     let cli_sockets: HashMap<&str, TcpStream> = HashMap::new();
-    let mut waits: FuturesUnordered<BoxDynFuture> = FuturesUnordered::new();
+    // let mut waits= FuturesUnordered::new();
     let web_ref = Arc::new(Mutex::new(web_sockets));
     let cli_ref = Arc::new(Mutex::new(cli_sockets));
 
-    let listen = || {
-        let conn = server
-            .accept()
-            .map_ok(|cxn| handle_connect(cxn, web_ref.clone(), cli_ref.clone()));
-
-            let conn2: BoxDynFuture= Box::<DynFuture>::new(conn.into());
-
-        // let df:DynFuture = conn.into();
-        // let bdf = Box::new(conn.into());
-        // let bdf: BoxDynFuture = Box::new(conn.into());
-        // waits.push(bdf);
-    };
-
-    listen();
-
     loop {
-        match waits.next().await {
-            Some(_) => {
-                listen();
-            }
-            None => {
-                println!("unexpected end");
-                break;
+        tokio::select! {
+            Ok(cxn) = server.accept() => {
+              let fwd = handle_connect(cxn, web_ref.clone(), cli_ref.clone()).await;
             }
         }
     }
@@ -101,7 +76,7 @@ async fn handle_connect(
     cxn: (TcpStream, SocketAddr),
     web_sockets_ref: Arc<Mutex<HashMap<&str, WebSocketStream<TcpStream>>>>,
     cli_sockets_ref: Arc<Mutex<HashMap<&str, TcpStream>>>,
-) {
+) -> Option<JoinHandle<()>> {
     let (stream, _) = cxn;
     let mut cli_sockets = cli_sockets_ref.lock().await;
     let mut web_sockets = web_sockets_ref.lock().await;
@@ -114,17 +89,19 @@ async fn handle_connect(
         let name = "tmpname1232";
         if let Some(socket) = cli_sockets.remove(name) {
             let handle = tokio::spawn(forward(socket, ws));
-            // waits.push(handle);
+            return Some(handle)
         } else {
             web_sockets.insert(name, ws);
+            return None;
         }
     } else {
         let name = "tmpname1232";
         if let Some(ws) = web_sockets.remove(name) {
             let handle = tokio::spawn(forward(stream, ws));
-            // waits.push(handle);
+            return Some(handle);
         } else {
             cli_sockets.insert(name, stream);
+            return None;
         }
     }
 }
