@@ -13,17 +13,16 @@ use tokio::{
 use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
 use tokio_util::io::ReaderStream;
 
-
 #[derive(Debug, Default)]
-struct Connections<'a> {
-  web_sockets: HashMap<&'a str, WebSocketStream<TcpStream>>,
-  cli_sockets: HashMap<&'a str, TcpStream>, 
+struct Connections {
+    web_sockets: HashMap<String, WebSocketStream<TcpStream>>,
+    cli_sockets: HashMap<String, TcpStream>,
 }
 
-impl<'a> Connections<'a> {
-  fn new() -> Connections<'a> {
-    Connections::default()
-  }    
+impl Connections {
+    fn new() -> Connections {
+        Connections::default()
+    }
 }
 
 /** Run a daemon server that listens for connections from command line clients and web browsers. */
@@ -32,10 +31,10 @@ pub async fn run_daemon(port: u16, once_only: bool) {
     let server = TcpListener::bind(proto::server_address(port))
         .await
         .unwrap();
-    let c = Connections::new(); 
+    let c = Connections::new();
 
-    let web_sockets: HashMap<&str, WebSocketStream<TcpStream>> = HashMap::new();
-    let cli_sockets: HashMap<&str, TcpStream> = HashMap::new();
+    let web_sockets: HashMap<String, WebSocketStream<TcpStream>> = HashMap::new();
+    let cli_sockets: HashMap<String, TcpStream> = HashMap::new();
     let mut waits = FuturesUnordered::new();
     let web_ref = Arc::new(Mutex::new(web_sockets));
     let cli_ref = Arc::new(Mutex::new(cli_sockets));
@@ -75,13 +74,12 @@ async fn forward(mut a: TcpStream, mut b: WebSocketStream<TcpStream>) {
     debug!("[forward] done");
 }
 
-
 /** Handle a connection to the daemon server from the browser or command line client.
  */
 async fn handle_connect(
     cxn: (TcpStream, SocketAddr),
-    web_sockets_ref: Arc<Mutex<HashMap<&str, WebSocketStream<TcpStream>>>>,
-    cli_sockets_ref: Arc<Mutex<HashMap<&str, TcpStream>>>,
+    web_sockets_ref: Arc<Mutex<HashMap<String, WebSocketStream<TcpStream>>>>,
+    cli_sockets_ref: Arc<Mutex<HashMap<String, TcpStream>>>,
 ) -> Option<JoinHandle<()>> {
     let (stream, _) = cxn;
     let mut cli_sockets = cli_sockets_ref.lock().await;
@@ -92,8 +90,8 @@ async fn handle_connect(
     if front == *b"GET / HTTP/1.1" {
         let ws = accept_async(stream).await.unwrap();
 
-        let name = "tmpname1232";
-        if let Some(socket) = cli_sockets.remove(name) {
+        let name = "tmpname1232".to_owned();
+        if let Some(socket) = cli_sockets.remove(&name) {
             let handle = tokio::spawn(forward(socket, ws));
             return Some(handle);
         } else {
@@ -101,8 +99,8 @@ async fn handle_connect(
             return None;
         }
     } else {
-        let name = "tmpname1232";
-        if let Some(ws) = web_sockets.remove(name) {
+        let name = "tmpname1232".to_owned();
+        if let Some(ws) = web_sockets.remove(&name) {
             let handle = tokio::spawn(forward(stream, ws));
             return Some(handle);
         } else {
