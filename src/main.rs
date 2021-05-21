@@ -28,7 +28,8 @@ struct ProtocolHeader {
     header_json: Vec<u8>,
 }
 
-const PROTOCOL_VERSION: [u8; 2] = (1u16).to_be_bytes();
+const PROTOCOL_VERSION: u16 = 1u16;
+const PROTOCOL_VERSION_BYTES: [u8; 2] = PROTOCOL_VERSION.to_be_bytes();
 
 fn server_address(port: u16) -> String {
     format!("localhost:{}", port)
@@ -37,12 +38,11 @@ fn server_address(port: u16) -> String {
 /** Consume a protocol header from a command line client tcp stream.  */
 async fn parse_header(input: &mut TcpStream) -> ProtocolHeader {
     let version = input.read_u16().await.unwrap();
-    assert_eq!(version, 1);
+    assert_eq!(version, PROTOCOL_VERSION);
     let header_size = input.read_u16().await.unwrap();
     let mut header_json = vec![0u8; header_size as usize];
     let header_json_bytes = input.read_exact(&mut header_json).await.unwrap();
-    info!("[server] received header size {}", header_size);
-    info!("[server] received header {:?}", header_json_bytes);
+    assert_eq!(header_json_bytes as u16, header_size);
 
     ProtocolHeader {
         version,
@@ -50,7 +50,7 @@ async fn parse_header(input: &mut TcpStream) -> ProtocolHeader {
     }
 }
 
-/** write a protocol header into a byte array */
+/** Write a protocol header into a byte array */
 fn header_to_bytes(header: &ProtocolHeader) -> Vec<u8> {
     let json_size = header.header_json.len();
     let json_size_u16 = json_size as u16;
@@ -77,6 +77,7 @@ async fn forward(mut a: TcpStream, mut b: WebSocketStream<TcpStream>) {
     debug!("[forward] done");
 }
 
+/** Run a daemon server that listens for connections from command line clients and web browsers. */
 #[tokio::main]
 async fn run_daemon(port: u16, once_only: bool) {
     let server = TcpListener::bind(server_address(port)).await.unwrap();
@@ -108,7 +109,6 @@ async fn run_daemon(port: u16, once_only: bool) {
 }
 
 /** Handle a connection to the daemon server from the browser or command line client.
-  * If matching browser 
  */
 async fn handle_connect(
     cxn: (TcpStream, SocketAddr),
@@ -144,7 +144,6 @@ async fn handle_connect(
     }
 }
 
-
 /** json messages sent from client to daemon to browser */
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize)]
@@ -157,25 +156,36 @@ struct PipeArgs {
     append: Option<bool>,
 }
 
+/** Write command line arguments into a protocol header. */
+fn client_header_bytes(args: &PipeArgs) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let header_vec = serde_json::to_vec(&args).unwrap();
+    let length = header_vec.len() as u16;
+    let length_bytes = length.to_be_bytes();
+
+    if log::max_level() >= log::Level::Debug {
+        let header_str = serde_json::to_string(&args).unwrap();
+        debug!("[client] header: {}", &header_str);
+    }
+
+    bytes.extend_from_slice(&PROTOCOL_VERSION_BYTES);
+    bytes.extend_from_slice(&length_bytes);
+    bytes.extend_from_slice(&header_vec);
+
+    bytes
+}
+
 /** cmd line client. Runs in its own OS process and terminates when it finishes
-  * forwarding its input stream to the daemon . */
+ * forwarding its input stream to the daemon . */
 #[tokio::main]
 async fn client(port: u16, args: &PipeArgs) -> Result<(), Box<dyn Error>> {
     let address = server_address(port);
     let mut stream = TcpStream::connect(&address).await?;
     debug!("[client] Connected to daemon {}", address);
-    let mut header = Vec::new();
-    let header_vec = serde_json::to_vec(&args)?;
-    let length = header_vec.len() as u16;
-    let length_bytes = length.to_be_bytes();
-    let header_str = serde_json::to_string(&args)?;
-    debug!("[client] header: {}", &header_str);
 
-    header.extend_from_slice(&PROTOCOL_VERSION);
-    header.extend_from_slice(&length_bytes);
-    header.extend_from_slice(&header_vec);
-
+    let header = client_header_bytes(&args);
     stream.write(&header).await.expect("Couldn't send header");
+
     let stdin = ReaderStream::new(io::stdin());
     stdin
         .forward(stream.compat_write().into_sink())
@@ -195,7 +205,7 @@ fn main() {
                 client(port, &pipe_args).unwrap();
             }
             Fork::Child => {
-                info!("[daemon] starting");
+                debug!("[daemon] starting");
                 if setsid().is_ok() {
                     chdir().unwrap();
                     // close_fd().unwrap(); // comment out to enable debug logging in daemon
