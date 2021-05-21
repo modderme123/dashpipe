@@ -74,9 +74,12 @@ async fn run_daemon(port: u16) {
             .accept()
             .map_ok(|cxn| handle_connect(cxn, web_ref.clone(), cli_ref.clone()));
 
-        let df:DynFuture = conn.into();
-        let bdf = Box::new(df);
-        waits.push(bdf);
+            let conn2: BoxDynFuture= Box::<DynFuture>::new(conn.into());
+
+        // let df:DynFuture = conn.into();
+        // let bdf = Box::new(conn.into());
+        // let bdf: BoxDynFuture = Box::new(conn.into());
+        // waits.push(bdf);
     };
 
     listen();
