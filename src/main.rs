@@ -52,7 +52,7 @@ async fn forward(mut a: TcpStream, mut b: WebSocketStream<TcpStream>) {
 }
 
 #[tokio::main]
-async fn run_daemon(port: u16) {
+async fn run_daemon(port: u16, once_only: bool) {
     let server = TcpListener::bind(server_address(port)).await.unwrap();
 
     let web_sockets: HashMap<&str, WebSocketStream<TcpStream>> = HashMap::new();
@@ -72,6 +72,9 @@ async fn run_daemon(port: u16) {
             },
             Some(x) = waits.next() => {
                 println!("[daemon loop] fwd complete, {:?}", x);
+                if once_only {
+                    break;
+                }
             }
         }
     }
@@ -125,6 +128,7 @@ struct PipeArgs {
     chart: Option<String>,
     no_show: Option<bool>,
     append: Option<bool>,
+    once: Option<bool>
 }
 
 #[tokio::main]
@@ -170,6 +174,7 @@ fn main() {
         .arg_from_usage("--chart=[chart] 'name of chart that will display the data'")
         .arg_from_usage("--no-show 'send the data without displaying it'")
         .arg_from_usage("--append 'append data to an existing chart'")
+        .arg_from_usage("--once 'do one data transfer, then quit daemon'")
         .get_matches();
 
     // env_logger::init();
@@ -183,6 +188,7 @@ fn main() {
         chart: arg_matches.value_of("dashboard").map(str::to_owned),
         no_show: arg_matches.is_present("no-show").then(|| true),
         append: arg_matches.is_present("append").then(|| true),
+        once: arg_matches.is_present("once").then(|| true),
     };
 
     if client(port, &pipe_args).is_err() {
@@ -199,7 +205,7 @@ fn main() {
                     // close_fd().unwrap(); // comment out to enable debug logging in daemon
                     if let Ok(Fork::Child) = fork() {
                         println!("[forked] foo");
-                        run_daemon(port);
+                        run_daemon(port, pipe_args.once.unwrap_or(false));
                     }
                 }
             }
