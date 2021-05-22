@@ -25,7 +25,8 @@ impl Connections {
     }
 }
 
-/** Run a daemon server that listens for connections from command line clients and web browsers. */
+/** A server that listens for connections from command line clients and web browsers. 
+  * Data from clients is sent to browsers via handle_connect*/
 #[tokio::main]
 pub async fn run_daemon(port: u16, once_only: bool) {
     let server = TcpListener::bind(proto::server_address(port))
