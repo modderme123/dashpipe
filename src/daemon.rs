@@ -31,18 +31,15 @@ pub async fn run_daemon(port: u16, once_only: bool) {
     let server = TcpListener::bind(proto::server_address(port))
         .await
         .unwrap();
-    let c = Connections::new();
+    let connections = Connections::new();
 
-    let web_sockets: HashMap<String, WebSocketStream<TcpStream>> = HashMap::new();
-    let cli_sockets: HashMap<String, TcpStream> = HashMap::new();
     let mut waits = FuturesUnordered::new();
-    let web_ref = Arc::new(Mutex::new(web_sockets));
-    let cli_ref = Arc::new(Mutex::new(cli_sockets));
+    let connections_ref = Arc::new(Mutex::new(connections));
 
     loop {
         tokio::select! {
             Ok(cxn) = server.accept() => {
-              let fwd = handle_connect(cxn, web_ref.clone(), cli_ref.clone()).await;
+              let fwd = handle_connect(cxn, connections_ref.clone()).await;
               match fwd {
                   Some(join_handle) => waits.push(join_handle),
                   _ => ()
@@ -59,6 +56,41 @@ pub async fn run_daemon(port: u16, once_only: bool) {
     }
 }
 
+/** Handle a connection to the daemon server from the browser or command line client.
+ */
+async fn handle_connect(
+    cxn: (TcpStream, SocketAddr),
+    connections_ref:Arc<Mutex<Connections>>,
+) -> Option<JoinHandle<()>> {
+    let (stream, _) = cxn;
+    let mut connections = connections_ref.lock().await;
+
+    let mut front = [0u8; 14];
+    stream.peek(&mut front).await.expect("peek failed");
+    if front == *b"GET / HTTP/1.1" {
+        let ws = accept_async(stream).await.unwrap();
+
+        let name = "tmpname1232".to_owned();
+        if let Some(socket) = connections.cli_sockets.remove(&name) {
+            let handle = tokio::spawn(forward(socket, ws));
+            return Some(handle);
+        } else {
+            connections.web_sockets.insert(name, ws);
+            return None;
+        }
+    } else {
+        let name = "tmpname1232".to_owned();
+        if let Some(ws) = connections.web_sockets.remove(&name) {
+            let handle = tokio::spawn(forward(stream, ws));
+            return Some(handle);
+        } else {
+            connections.cli_sockets.insert(name, stream);
+            return None;
+        }
+    }
+}
+
+
 /** Forward a protocol stream from a command line client to a browser websocket.
  * The protocol header is parsed from the command line client and sent in a single
  * websocket message. Data follows in one or more websocket messages. */
@@ -72,40 +104,4 @@ async fn forward(mut a: TcpStream, mut b: WebSocketStream<TcpStream>) {
     let message_stream = reader_stream.map(|x| Ok(Message::binary(x.unwrap().to_vec())));
     message_stream.forward(b).await.unwrap();
     debug!("[forward] done");
-}
-
-/** Handle a connection to the daemon server from the browser or command line client.
- */
-async fn handle_connect(
-    cxn: (TcpStream, SocketAddr),
-    web_sockets_ref: Arc<Mutex<HashMap<String, WebSocketStream<TcpStream>>>>,
-    cli_sockets_ref: Arc<Mutex<HashMap<String, TcpStream>>>,
-) -> Option<JoinHandle<()>> {
-    let (stream, _) = cxn;
-    let mut cli_sockets = cli_sockets_ref.lock().await;
-    let mut web_sockets = web_sockets_ref.lock().await;
-
-    let mut front = [0u8; 14];
-    stream.peek(&mut front).await.expect("peek failed");
-    if front == *b"GET / HTTP/1.1" {
-        let ws = accept_async(stream).await.unwrap();
-
-        let name = "tmpname1232".to_owned();
-        if let Some(socket) = cli_sockets.remove(&name) {
-            let handle = tokio::spawn(forward(socket, ws));
-            return Some(handle);
-        } else {
-            web_sockets.insert(name, ws);
-            return None;
-        }
-    } else {
-        let name = "tmpname1232".to_owned();
-        if let Some(ws) = web_sockets.remove(&name) {
-            let handle = tokio::spawn(forward(stream, ws));
-            return Some(handle);
-        } else {
-            cli_sockets.insert(name, stream);
-            return None;
-        }
-    }
 }
