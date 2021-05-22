@@ -3,6 +3,7 @@ use futures_util::stream::FuturesUnordered;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use log::*;
+use serde_json::Value;
 use std::sync::Arc;
 use std::{collections::HashMap, net::SocketAddr, option::Option};
 use tokio::sync::Mutex;
@@ -25,8 +26,8 @@ impl Connections {
     }
 }
 
-/** A server that listens for connections from command line clients and web browsers. 
-  * Data from clients is sent to browsers via handle_connect*/
+/** A server that listens for connections from command line clients and web browsers.
+ * Data from clients is sent to browsers via handle_connect*/
 #[tokio::main]
 pub async fn run_daemon(port: u16, once_only: bool) {
     let server = TcpListener::bind(proto::server_address(port))
@@ -61,7 +62,7 @@ pub async fn run_daemon(port: u16, once_only: bool) {
  */
 async fn handle_connect(
     cxn: (TcpStream, SocketAddr),
-    connections_ref:Arc<Mutex<Connections>>,
+    connections_ref: Arc<Mutex<Connections>>,
 ) -> Option<JoinHandle<()>> {
     let (stream, _) = cxn;
     let mut connections = connections_ref.lock().await;
@@ -69,7 +70,9 @@ async fn handle_connect(
     let mut front = [0u8; 14];
     stream.peek(&mut front).await.expect("peek failed");
     if front == *b"GET / HTTP/1.1" {
-        let ws = accept_async(stream).await.unwrap();
+        let mut ws = accept_async(stream).await.unwrap();
+        let header = handle_ws(&mut ws).await;
+        debug!("[daemon] parsed header {:?}", header);
 
         let name = "tmpname1232".to_owned();
         if let Some(socket) = connections.cli_sockets.remove(&name) {
@@ -91,6 +94,23 @@ async fn handle_connect(
     }
 }
 
+async fn handle_ws(ws: &mut WebSocketStream<TcpStream>) -> Option<serde_json::Value> {
+    let next_msg = ws.next().await;
+    return match next_msg {
+        Some(Ok(msg)) => {
+            debug!("ws message {:?}", msg);
+            let result = msg.to_text().map(|text| {
+                let v: Value = serde_json::from_str(text).unwrap();
+                v
+            });
+            result.map_or(None, Some)
+        }
+        _ => {
+            debug!("[daemon] no message received {:?}", next_msg);
+            None
+        }
+    };
+}
 
 /** Forward a protocol stream from a command line client to a browser websocket.
  * The protocol header is parsed from the command line client and sent in a single
