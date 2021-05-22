@@ -48,8 +48,6 @@ pub fn cmd_line_arguments() -> (PipeArgs, u16) {
         .arg_from_usage("--once 'do one data transfer, then quit daemon'")
         .get_matches();
 
-    // env_logger::init();
-    env_logger::builder().filter_level(LevelFilter::Info).init(); // for now set logging level in code
 
     let port_str = arg_matches.value_of("port").unwrap();
     let port: u16 = port_str.parse().unwrap();

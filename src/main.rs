@@ -7,6 +7,9 @@ use log::*;
 use std::{thread::sleep, time::Duration};
 
 fn main() {
+    env_logger::init();
+    // env_logger::builder().filter_level(LevelFilter::Debug).init(); // uncomment to set logging level in code
+
     let (pipe_args, port) = client::cmd_line_arguments();
 
     if client::client(port, &pipe_args).is_err() {
