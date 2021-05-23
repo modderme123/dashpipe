@@ -61,7 +61,7 @@ pub async fn parse_header(input: &mut TcpStream) -> ProtocolHeader {
 pub struct PipeArgs {
     pub dashboard: Option<String>, // This is only needed for client to daemon
     pub once: Option<bool>,        // This is only needed for client to daemon
-    pub title: Option<String>,
+    pub name: Option<String>,
     pub chart: Option<String>,
     pub no_show: Option<bool>,
     pub append: Option<bool>,
