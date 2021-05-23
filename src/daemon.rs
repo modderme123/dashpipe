@@ -3,7 +3,6 @@ use futures_util::stream::FuturesUnordered;
 use futures_util::SinkExt;
 use futures_util::StreamExt;
 use log::*;
-use serde_json::Value;
 use std::sync::Arc;
 use std::{collections::HashMap, net::SocketAddr, option::Option};
 use tokio::sync::Mutex;
@@ -71,17 +70,18 @@ async fn handle_connect(
     stream.peek(&mut front).await.expect("peek failed");
     if front == *b"GET / HTTP/1.1" {
         let mut ws = accept_async(stream).await.unwrap();
-        let header = handle_ws(&mut ws).await;
-        debug!("[daemon] parsed header {:?}", header);
-
-        let name = "tmpname1232".to_owned();
-        if let Some(socket) = connections.cli_sockets.remove(&name) {
-            let handle = tokio::spawn(forward(socket, ws));
-            return Some(handle);
-        } else {
-            connections.web_sockets.insert(name, ws);
-            return None;
-        }
+        let header = proto::parse_browser_header(&mut ws).await;
+        return header.and_then(|header| {
+            debug!("[daemon] parsed header {:?}", header);
+            let name = "tmpname1232".to_owned();
+            if let Some(socket) = connections.cli_sockets.remove(&name) {
+                let handle = tokio::spawn(forward(socket, ws));
+                return Some(handle);
+            } else {
+                connections.web_sockets.insert(name, ws);
+                return None;
+            }
+        });
     } else {
         let name = "tmpname1232".to_owned();
         if let Some(ws) = connections.web_sockets.remove(&name) {
@@ -92,24 +92,6 @@ async fn handle_connect(
             return None;
         }
     }
-}
-
-async fn handle_ws(ws: &mut WebSocketStream<TcpStream>) -> Option<serde_json::Value> {
-    let next_msg = ws.next().await;
-    return match next_msg {
-        Some(Ok(msg)) => {
-            debug!("ws message {:?}", msg);
-            let result = msg.to_text().map(|text| {
-                let v: Value = serde_json::from_str(text).unwrap();
-                v
-            });
-            result.map_or(None, Some)
-        }
-        _ => {
-            debug!("[daemon] no message received {:?}", next_msg);
-            None
-        }
-    };
 }
 
 /** Forward a protocol stream from a command line client to a browser websocket.

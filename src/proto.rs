@@ -1,10 +1,9 @@
+use futures_util::StreamExt;
 use log::*;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
-use tokio::{
-    io::{AsyncReadExt},
-    net::{TcpStream},
-};
+use tokio::{io::AsyncReadExt, net::TcpStream};
+use tokio_tungstenite::WebSocketStream;
 
 /** Protocol for header message to browser
  *    [version number (16 bits)] [json length 16 bits] [header: json utf8]
@@ -78,4 +77,44 @@ pub fn header_to_bytes(header: &ProtocolHeader) -> Vec<u8> {
     buffer[4..].copy_from_slice(&header.header_json);
 
     buffer
+}
+
+#[derive(Debug)]
+pub struct BrowserHeader {
+    pub current_dashboard: Option<String>,
+    pub browser_id: Option<String>,
+}
+
+pub async fn parse_browser_header(ws: &mut WebSocketStream<TcpStream>) -> Option<BrowserHeader> {
+    let header_opt = read_ws_header(ws).await;
+    return match header_opt {
+        Some(header_value) => match header_value.as_object() {
+            Some(header_obj) => {
+                Some(BrowserHeader {
+                    current_dashboard: Some("foo".to_owned()),
+                    browser_id: Some("bar".to_owned()),
+                })
+            }
+            _ => None,
+        },
+        _ => None,
+    };
+}
+
+async fn read_ws_header(ws: &mut WebSocketStream<TcpStream>) -> Option<serde_json::Value> {
+    let next_msg = (*ws).next().await;
+    return match next_msg {
+        Some(Ok(msg)) => {
+            debug!("ws message {:?}", msg);
+            msg.to_text()
+                .map(|text| {
+                    return serde_json::from_str(text).unwrap();
+                })
+                .map_or(None, Some)
+        }
+        _ => {
+            debug!("[daemon] no message received {:?}", next_msg);
+            None
+        }
+    };
 }
