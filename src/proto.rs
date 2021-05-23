@@ -3,7 +3,7 @@ use log::*;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use tokio::{io::AsyncReadExt, net::TcpStream};
-use tokio_tungstenite::{tungstenite::http::header, WebSocketStream};
+use tokio_tungstenite::WebSocketStream;
 
 /** Protocol for header message to browser
  *    [version number (16 bits)] [json length 16 bits] [header: json utf8]
@@ -90,6 +90,7 @@ pub struct BrowserHeader {
     pub browser_id: Option<String>,
 }
 
+/** Parse a single websocket message sent by the browser when it connects */
 pub async fn parse_browser_header(ws: &mut WebSocketStream<TcpStream>) -> Option<BrowserHeader> {
     let header_opt = read_ws_header(ws).await;
     return match header_opt {
@@ -102,9 +103,9 @@ pub async fn parse_browser_header(ws: &mut WebSocketStream<TcpStream>) -> Option
 }
 
 /** Return a string field from a serde_json object.
-  * 
-  * Returns None if the provided value is not an object, or the specified field doesn't exist on the object, 
-  * or the field value doesn't contain a string, returns None. */
+ *
+ * Returns None if the provided value is not an object, or the specified field doesn't exist on the object,
+ * or the field value doesn't contain a string, returns None. */
 fn get_string_field(value: &serde_json::Value, field: &str) -> Option<String> {
     return value.as_object().and_then(|obj| {
         obj.get(field)
