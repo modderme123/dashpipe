@@ -53,7 +53,7 @@ pub fn cmd_line_arguments() -> (PipeArgs, u16) {
     let pipe_args = PipeArgs {
         name: arg_matches.value_of("name").map(str::to_owned),
         dashboard: arg_matches.value_of("dashboard").map(str::to_owned),
-        chart: arg_matches.value_of("dashboard").map(str::to_owned),
+        chart: arg_matches.value_of("chart").map(str::to_owned),
         no_show: arg_matches.is_present("no-show").then(|| true),
         append: arg_matches.is_present("append").then(|| true),
         once: arg_matches.is_present("once").then(|| true),
