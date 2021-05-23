@@ -1,6 +1,7 @@
 use futures_util::StreamExt;
 use log::*;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use serde_with::skip_serializing_none;
 use tokio::{io::AsyncReadExt, net::TcpStream};
 use tokio_tungstenite::WebSocketStream;
@@ -93,13 +94,10 @@ pub struct BrowserHeader {
 /** Parse a single websocket message sent by the browser when it connects */
 pub async fn parse_browser_header(ws: &mut WebSocketStream<TcpStream>) -> Option<BrowserHeader> {
     let header_opt = read_ws_header(ws).await;
-    return match header_opt {
-        Some(header_value) => Some(BrowserHeader {
-            current_dashboard: get_string_field(&header_value, "currentDashboard"),
-            browser_id: get_string_field(&header_value, "browserId"),
-        }),
-        _ => None,
-    };
+    header_opt.map(|header_value| BrowserHeader {
+        current_dashboard: get_string_field(&header_value, "currentDashboard"),
+        browser_id: get_string_field(&header_value, "browserId"),
+    })
 }
 
 /** Return a string field from a serde_json object.
@@ -107,28 +105,22 @@ pub async fn parse_browser_header(ws: &mut WebSocketStream<TcpStream>) -> Option
  * Returns None if the provided value is not an object, or the specified field doesn't exist on the object,
  * or the field value doesn't contain a string, returns None. */
 fn get_string_field(value: &serde_json::Value, field: &str) -> Option<String> {
-    return value.as_object().and_then(|obj| {
-        obj.get(field)
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-    });
+    value.get(field).and_then(Value::as_str).map(str::to_string)
 }
 
 /** Read the header sent by the browser to the daemon */
 async fn read_ws_header(ws: &mut WebSocketStream<TcpStream>) -> Option<serde_json::Value> {
     let next_msg = (*ws).next().await;
-    return match next_msg {
+    match next_msg {
         Some(Ok(msg)) => {
             debug!("[daemon] ws message {:?}", msg);
             msg.to_text()
-                .map(|text| {
-                    return serde_json::from_str(text).unwrap();
-                })
-                .map_or(None, Some)
+                .map(|text| serde_json::from_str(text).unwrap())
+                .ok()
         }
         _ => {
             warn!("[daemon] no message received {:?}", next_msg);
             None
         }
-    };
+    }
 }

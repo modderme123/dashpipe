@@ -41,9 +41,8 @@ pub async fn run_daemon(port: u16, once_only: bool) {
         tokio::select! {
             Ok(cxn) = server.accept() => {
               let fwd = handle_connect(cxn, connections_ref.clone()).await;
-              match fwd {
-                  Some(join_handle) => waits.push(join_handle),
-                  _ => ()
+              if let Some(join_handle) = fwd {
+                  waits.push(join_handle);
               }
             },
             Some(x) = waits.next() => {
@@ -71,25 +70,25 @@ async fn handle_connect(
     if front == *b"GET / HTTP/1.1" {
         let mut ws = accept_async(stream).await.unwrap();
         let header = proto::parse_browser_header(&mut ws).await;
-        return header.and_then(|header| {
+        header.and_then(|header| {
             debug!("[daemon] parsed header {:?}", header);
             let name = "tmpname1232".to_owned();
             if let Some(socket) = connections.cli_sockets.remove(&name) {
                 let handle = tokio::spawn(forward(socket, ws));
-                return Some(handle);
+                Some(handle)
             } else {
                 connections.web_sockets.insert(name, ws);
-                return None;
+                None
             }
-        });
+        })
     } else {
         let name = "tmpname1232".to_owned();
         if let Some(ws) = connections.web_sockets.remove(&name) {
             let handle = tokio::spawn(forward(stream, ws));
-            return Some(handle);
+            Some(handle)
         } else {
             connections.cli_sockets.insert(name, stream);
-            return None;
+            None
         }
     }
 }
