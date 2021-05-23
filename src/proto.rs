@@ -64,6 +64,7 @@ pub struct PipeArgs {
     pub once: Option<bool>,        // This is only needed for client to daemon
     pub name: Option<String>,
     pub chart: Option<String>,
+    #[serde(rename = "noShow")]
     pub no_show: Option<bool>,
     pub append: Option<bool>,
 }
