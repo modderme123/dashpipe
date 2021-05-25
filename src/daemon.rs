@@ -150,7 +150,7 @@ async fn connect_cli(mut cli: TcpStream, connections: &mut Connections) -> Optio
             header,
         };
 
-        match ws_opt {
+        match ws_opt {  // RUST how to we write this with map & or_else?
             Some(ws) => Some(tokio::spawn(forward(connection, ws))),
             _ => {
                 let dash_name = dash_opt.unwrap_or_else(|| "".to_owned());
@@ -158,11 +158,6 @@ async fn connect_cli(mut cli: TcpStream, connections: &mut Connections) -> Optio
                 None
             }
         }
-        // ws_opt.map(|ws| tokio::spawn(forward(cli, ws))).or_else(|| {
-        //     let dash_name = dash_opt.unwrap_or_else(|| "".to_owned());
-        //     cli_sockets.insert(dash_name, cli);
-        //     None
-        // })
     })
 }
 
