@@ -90,7 +90,9 @@ async fn handle_connect(
 async fn forward(cli: CliConnection, mut ws: WebSocketStream<TcpStream>) {
     let header_buffer = proto::header_to_bytes(&cli.header);
     let header_message = Message::binary(header_buffer);
-    ws.send(header_message).await.unwrap();
+    ws.send(header_message)
+        .await
+        .unwrap_or_else(|e| warn!("[daemon] header forwarding error {:?}", e)); // note this doesn't fail, even if the connection is closed
 
     let reader_stream = ReaderStream::new(cli.stream);
     let message_stream = reader_stream.map(|x| Ok(Message::binary(x.unwrap().to_vec())));
@@ -98,6 +100,7 @@ async fn forward(cli: CliConnection, mut ws: WebSocketStream<TcpStream>) {
         .forward(ws)
         .await
         .unwrap_or_else(|e| warn!("[daemon] forwarding error {:?}", e));
+
     debug!("[forward] done");
 }
 
@@ -118,7 +121,7 @@ async fn connect_ws(
         let cli_opt = dash_opt
             .clone()
             .and_then(|d| cli_sockets.remove(&d))
-            .or_else(|| remove_first(cli_sockets));
+            .or_else(|| remove_one(cli_sockets));
 
         match cli_opt {
             Some(cli) => Some(tokio::spawn(forward(cli, ws))),
@@ -143,14 +146,15 @@ async fn connect_cli(mut cli: TcpStream, connections: &mut Connections) -> Optio
         let ws_opt = dash_opt
             .clone()
             .and_then(|d| web_sockets.remove(&d))
-            .or_else(|| remove_first(web_sockets));
+            .or_else(|| remove_one(web_sockets));
 
         let connection = CliConnection {
             stream: cli,
             header,
         };
 
-        match ws_opt {  // RUST how to we write this with map & or_else?
+        match ws_opt {
+            // RUST how to we write this with map & or_else?
             Some(ws) => Some(tokio::spawn(forward(connection, ws))),
             _ => {
                 let dash_name = dash_opt.unwrap_or_else(|| "".to_owned());
@@ -161,8 +165,8 @@ async fn connect_cli(mut cli: TcpStream, connections: &mut Connections) -> Optio
     })
 }
 
-/// Remove the first element from a hash map if it exists
-fn remove_first<K, V>(hash: &mut HashMap<K, V>) -> Option<V>
+/// Remove one element from a hash map if it is non-empty
+fn remove_one<K, V>(hash: &mut HashMap<K, V>) -> Option<V>
 where
     K: Hash + Eq + Clone,
 {
