@@ -9,10 +9,12 @@ use tokio_tungstenite::WebSocketStream;
 /** Protocol for header message to browser
  *    [version number (16 bits)] [json length 16 bits] [header: json utf8]
  */
+#[derive(Debug)]
 pub struct ProtocolHeader {
     pub version: u16,
-    /* length: u16 // length field is in the protocol, but here we can use header_json.len() */
-    pub header_json: Vec<u8>,
+    // length: u16 // length field is in the protocol, but here we can use header_json.len() */
+    pub json_buffer: Vec<u8>,
+    pub json: serde_json::Value,
 }
 
 const PROTOCOL_VERSION: u16 = 1u16;
@@ -42,18 +44,20 @@ pub fn client_header_bytes(args: &PipeArgs) -> Vec<u8> {
 }
 
 /** Consume a protocol header from a command line client tcp stream.  */
-pub async fn parse_header(input: &mut TcpStream) -> ProtocolHeader {
+pub async fn parse_cli_header(input: &mut TcpStream) -> Option<ProtocolHeader> {
     let version = input.read_u16().await.unwrap();
     assert_eq!(version, PROTOCOL_VERSION);
     let header_size = input.read_u16().await.unwrap();
-    let mut header_json = vec![0u8; header_size as usize];
-    let header_json_bytes = input.read_exact(&mut header_json).await.unwrap();
+    let mut json_buffer = vec![0u8; header_size as usize];
+    let header_json_bytes = input.read_exact(&mut json_buffer).await.unwrap();
     assert_eq!(header_json_bytes as u16, header_size);
 
-    ProtocolHeader {
+    let json: Option<serde_json::Value> = serde_json::from_slice(&json_buffer).ok();
+    json.map(|json| ProtocolHeader {
         version,
-        header_json,
-    }
+        json_buffer,
+        json
+    })
 }
 
 /** json messages sent from client to daemon to browser */
@@ -71,12 +75,12 @@ pub struct PipeArgs {
 
 /** Write a protocol header into a byte array */
 pub fn header_to_bytes(header: &ProtocolHeader) -> Vec<u8> {
-    let json_size = header.header_json.len();
+    let json_size = header.json_buffer.len();
     let json_size_u16 = json_size as u16;
     let mut buffer = vec![0u8; json_size + 4];
     buffer[0..2].copy_from_slice(&header.version.to_be_bytes());
     buffer[2..4].copy_from_slice(&json_size_u16.to_be_bytes());
-    buffer[4..].copy_from_slice(&header.header_json);
+    buffer[4..].copy_from_slice(&header.json_buffer);
 
     buffer
 }
@@ -105,7 +109,7 @@ pub async fn parse_browser_header(ws: &mut WebSocketStream<TcpStream>) -> Option
  *
  * Returns None if the provided value is not an object, or the specified field doesn't exist on the object,
  * or the field value doesn't contain a string, returns None. */
-fn get_string_field(value: &serde_json::Value, field: &str) -> Option<String> {
+pub fn get_string_field(value: &serde_json::Value, field: &str) -> Option<String> {
     value.get(field).and_then(Value::as_str).map(str::to_string)
 }
 
