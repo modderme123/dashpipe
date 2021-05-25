@@ -114,7 +114,6 @@ async fn connect_ws(
 
         let cli_opt = dash_opt
             .clone()
-            .map(|x| x.to_owned())
             .and_then(|d| cli_sockets.remove(&d))
             .or_else(|| remove_first(cli_sockets));
 
