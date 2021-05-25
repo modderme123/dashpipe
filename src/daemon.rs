@@ -1,9 +1,8 @@
 use crate::proto;
 use futures_util::stream::FuturesUnordered;
-use futures_util::SinkExt;
 use futures_util::StreamExt;
 use log::*;
-use std::sync::Arc;
+use std::{borrow::Borrow, sync::Arc};
 use std::{collections::HashMap, net::SocketAddr, option::Option};
 use tokio::sync::Mutex;
 use tokio::{
@@ -12,6 +11,7 @@ use tokio::{
 };
 use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
 use tokio_util::io::ReaderStream;
+use std::hash::Hash;
 
 #[derive(Debug, Default)]
 struct Connections {
@@ -71,10 +71,10 @@ async fn handle_connect(
     let mut front = [0u8; 14];
     stream.peek(&mut front).await.expect("peek failed");
     if front == *b"GET / HTTP/1.1" {
-        let mut ws = accept_async(stream).await.unwrap();
-        connect_ws(&mut ws, &mut connections).await
+        let ws = accept_async(stream).await.unwrap();
+        connect_ws(ws, &mut connections).await
     } else {
-        connect_cli(&mut stream, &mut connections).await
+        connect_cli(stream, &mut connections).await
     }
 }
 
@@ -94,10 +94,10 @@ async fn forward(a: TcpStream, b: WebSocketStream<TcpStream>) {
 }
 
 async fn connect_ws(
-    ws: &mut WebSocketStream<TcpStream>,
+    mut ws: WebSocketStream<TcpStream>,
     connections: &mut Connections,
 ) -> Option<JoinHandle<()>> {
-    let header_opt = proto::parse_browser_header(ws).await;
+    let header_opt = proto::parse_browser_header(&mut ws).await;
     let Connections {
         cli_sockets,
         web_sockets,
@@ -108,46 +108,61 @@ async fn connect_ws(
         let dash_opt = header.current_dashboard;
 
         let cli_opt = dash_opt
-            .and_then(|d| cli_sockets.remove(d.as_ref()))
-            .as_ref()
-            .or_else(|| cli_sockets.values().next());
+            .clone()
+            .map(|x| x.to_owned())
+            .and_then(|d| cli_sockets.remove(&d.to_owned()))
+            .or_else(|| remove_first(cli_sockets));
 
-        cli_opt
-            .map(|cli| tokio::spawn(forward(*cli, *ws)))
-            .or_else(|| {
+        match cli_opt {
+            Some(cli) => Some(tokio::spawn(forward(cli, ws))),
+            _ => {
                 let dash_name = dash_opt.unwrap_or_else(|| "".to_owned());
-                connections.web_sockets.insert(dash_name, *ws);
+                web_sockets.insert(dash_name, ws);
                 None
-            })
+            }
+        }
     })
 }
+fn remove_first<K, V>(map: &mut HashMap<K, V>) -> Option<V>
+where
+    // T: Borrow<K>,
+    K: Hash + Eq,
+{
+  None
 
-async fn connect_cli(cli: &mut TcpStream, connections: &mut Connections) -> Option<JoinHandle<()>> {
+    // let firstKey = map.keys().next().map(|x| x.to_owned());
+
+    // match  firstKey {
+    //   Some(k) => map.remove(&k),
+    //   _ => None
+    // }
+}
+
+async fn connect_cli(mut cli: TcpStream, connections: &mut Connections) -> Option<JoinHandle<()>> {
     let Connections {
         cli_sockets,
         web_sockets,
     } = connections;
-    let header_opt = proto::parse_cli_header(cli).await;
+    let header_opt = proto::parse_cli_header(&mut cli).await;
     header_opt.and_then(|header| {
         let dash_opt = proto::get_string_field(&header.json, "dashboard");
         let ws_opt = dash_opt
-            .and_then(|d| web_sockets.remove(d.as_ref()))
-            .as_ref()
-            .or_else(|| web_sockets.values().next());
-        ws_opt
-            .map(|ws| tokio::spawn(forward(*cli, *ws)))
-            .or_else(|| {
+            .clone()
+            .and_then(|d| web_sockets.remove(&d))
+            .or_else(|| remove_first(web_sockets));
+
+        match ws_opt {
+            Some(ws) => Some(tokio::spawn(forward(cli, ws))),
+            _ => {
                 let dash_name = dash_opt.unwrap_or_else(|| "".to_owned());
-                cli_sockets.insert(dash_name, *cli);
+                cli_sockets.insert(dash_name, cli);
                 None
-            })
+            }
+        }
+        // ws_opt.map(|ws| tokio::spawn(forward(cli, ws))).or_else(|| {
+        //     let dash_name = dash_opt.unwrap_or_else(|| "".to_owned());
+        //     cli_sockets.insert(dash_name, cli);
+        //     None
+        // })
     })
 }
-// let name = "tmpname1232".to_owned();
-// if let Some(ws) = connections.web_sockets.remove(&name) {
-//     let handle = tokio::spawn(forward(cli, ws));
-//     Some(handle)
-// } else {
-//     connections.cli_sockets.insert(name, stream);
-//     None
-// }
