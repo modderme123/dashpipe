@@ -9,6 +9,7 @@ use tokio_tungstenite::WebSocketStream;
 /** Protocol for header message to browser
  *    [version number (16 bits)] [json length 16 bits] [header: json utf8]
  */
+#[derive(Debug)]
 pub struct ProtocolHeader {
     pub version: u16,
     // length: u16 // length field is in the protocol, but here we can use header_json.len() */
