@@ -94,7 +94,10 @@ async fn forward(cli: CliConnection, mut ws: WebSocketStream<TcpStream>) {
 
     let reader_stream = ReaderStream::new(cli.stream);
     let message_stream = reader_stream.map(|x| Ok(Message::binary(x.unwrap().to_vec())));
-    message_stream.forward(ws).await.unwrap();
+    message_stream
+        .forward(ws)
+        .await
+        .unwrap_or_else(|e| warn!("[daemon] forwarding error {:?}", e));
     debug!("[forward] done");
 }
 
