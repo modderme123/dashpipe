@@ -2,9 +2,8 @@ use crate::proto;
 use futures_util::StreamExt;
 use futures_util::{stream::FuturesUnordered, SinkExt};
 use log::*;
-use std::hash::Hash;
 use std::sync::Arc;
-use std::{collections::HashMap, net::SocketAddr, option::Option};
+use std::{net::SocketAddr, option::Option};
 use tokio::sync::Mutex;
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -15,11 +14,8 @@ use tokio_util::io::ReaderStream;
 
 #[derive(Debug, Default)]
 struct Connections {
-    /// webssockets indexed by dashboard name or "" if unspecified
-    web_sockets: HashMap<String, WebSocketStream<TcpStream>>,
-
-    /// cli sockets indexed by target dashboard name or "" if unspecified
-    cli_connections: HashMap<String, CliConnection>,
+    web_sockets: Vec<WsConnection>,
+    cli_connections: Vec<CliConnection>,
 }
 
 impl Connections {
@@ -30,8 +26,14 @@ impl Connections {
 
 #[derive(Debug)]
 struct CliConnection {
+    dashboard: Option<String>,
     stream: TcpStream,
     header: proto::ProtocolHeader,
+}
+#[derive(Debug)]
+struct WsConnection {
+    dashboard: Option<String>,
+    ws: WebSocketStream<TcpStream>,
 }
 
 /** A server that listens for connections from command line clients and web browsers.
@@ -65,14 +67,19 @@ pub async fn run_daemon(port: u16, once_only: bool) {
     }
 }
 
-/** Handle a connection to the daemon server from the browser or command line client.
- */
+/// Handle a connection to the daemon server from the browser or command line client.
 async fn handle_connect(
     cxn: (TcpStream, SocketAddr),
     connections_ref: Arc<Mutex<Connections>>,
 ) -> Option<JoinHandle<()>> {
     let (stream, _) = cxn;
     let mut connections = connections_ref.lock().await;
+
+    trace!(
+        "[daemon] handle_connect: cli connections: {}, ws: {}",
+        connections.cli_connections.len(),
+        connections.web_sockets.len()
+    );
 
     let mut front = [0u8; 14];
     stream.peek(&mut front).await.expect("peek failed");
@@ -90,7 +97,9 @@ async fn handle_connect(
 async fn forward(cli: CliConnection, mut ws: WebSocketStream<TcpStream>) {
     let header_buffer = proto::header_to_bytes(&cli.header);
     let header_message = Message::binary(header_buffer);
-    ws.send(header_message).await.unwrap();
+    ws.send(header_message)
+        .await
+        .unwrap_or_else(|e| warn!("[daemon] header forwarding error {:?}", e)); // note this doesn't fail, even if the connection is closed
 
     let reader_stream = ReaderStream::new(cli.stream);
     let message_stream = reader_stream.map(|x| Ok(Message::binary(x.unwrap().to_vec())));
@@ -98,78 +107,93 @@ async fn forward(cli: CliConnection, mut ws: WebSocketStream<TcpStream>) {
         .forward(ws)
         .await
         .unwrap_or_else(|e| warn!("[daemon] forwarding error {:?}", e));
+
     debug!("[forward] done");
 }
 
+/// Connect an incoming browser web socket to an appropriate cli connection stream.
+///
+/// If no cli connection is available, save the browser socket in Connections.
 async fn connect_ws(
     mut ws: WebSocketStream<TcpStream>,
     connections: &mut Connections,
 ) -> Option<JoinHandle<()>> {
     let header_opt = proto::parse_browser_header(&mut ws).await;
-    let Connections {
-        cli_connections: cli_sockets,
-        web_sockets,
-    } = connections;
     header_opt.and_then(|header| {
-        debug!("[daemon] parsed header {:?}", header);
+        debug!("[daemon] parsed ws header {:?}", header);
 
-        let dash_opt = header.current_dashboard;
-
-        let cli_opt = dash_opt
-            .clone()
-            .and_then(|d| cli_sockets.remove(&d))
-            .or_else(|| remove_first(cli_sockets));
+        let dashboard = header.current_dashboard;
+        let cli_opt = matching_cli_connection(&dashboard, &mut connections.cli_connections);
 
         match cli_opt {
             Some(cli) => Some(tokio::spawn(forward(cli, ws))),
             _ => {
-                let dash_name = dash_opt.unwrap_or_else(|| "".to_owned());
-                web_sockets.insert(dash_name, ws);
+                let ws_connection = WsConnection { dashboard, ws };
+                connections.web_sockets.push(ws_connection);
                 None
             }
         }
     })
 }
 
+/// Route an incoming cli stream to a matching browser web socket if available.
+///
+/// If no appropriate browser is connected, save the cli stream in Connections awaiting a future
+/// browser connection
 async fn connect_cli(mut cli: TcpStream, connections: &mut Connections) -> Option<JoinHandle<()>> {
-    let Connections {
-        cli_connections,
-        web_sockets,
-    } = connections;
     let header_opt = proto::parse_cli_header(&mut cli).await;
     header_opt.and_then(|header| {
         debug!("[daemon] client header: {:?}", &header);
-        let dash_opt = proto::get_string_field(&header.json, "dashboard");
-        let ws_opt = dash_opt
-            .clone()
-            .and_then(|d| web_sockets.remove(&d))
-            .or_else(|| remove_first(web_sockets));
+        let dashboard = proto::get_string_field(&header.json, "dashboard");
+        let ws_opt = matching_browser_ws(&dashboard, &mut connections.web_sockets);
 
         let connection = CliConnection {
+            dashboard,
             stream: cli,
             header,
         };
 
         match ws_opt {
+            // RUST how to we write this with map & or_else?
             Some(ws) => Some(tokio::spawn(forward(connection, ws))),
             _ => {
-                let dash_name = dash_opt.unwrap_or_else(|| "".to_owned());
-                cli_connections.insert(dash_name, connection);
+                connections.cli_connections.push(connection);
                 None
             }
         }
-        // ws_opt.map(|ws| tokio::spawn(forward(cli, ws))).or_else(|| {
-        //     let dash_name = dash_opt.unwrap_or_else(|| "".to_owned());
-        //     cli_sockets.insert(dash_name, cli);
-        //     None
-        // })
     })
 }
 
-/// Remove the first element from a hash map if it exists
-fn remove_first<K, V>(hash: &mut HashMap<K, V>) -> Option<V>
-where
-    K: Hash + Eq + Clone,
-{
-    hash.keys().next().cloned().and_then(|k| hash.remove(&k))
+/// return a CliConnection for a given dashboard.
+/// If no dashboard is specified, return the first CliConnection.
+fn matching_cli_connection(
+    dashboard: &Option<String>,
+    cli_connections: &mut Vec<CliConnection>,
+) -> Option<CliConnection> {
+    cli_connections
+        .iter()
+        .position(|c| c.dashboard.eq(&dashboard))
+        .or_else(|| first_index(cli_connections))
+        .map(|i| cli_connections.remove(i))
+}
+
+/// return a browser websocket for a given dashboard.
+/// If no dashboard is specified, return the first websocket.
+fn matching_browser_ws(
+    dashboard: &Option<String>,
+    web_sockets: &mut Vec<WsConnection>,
+) -> Option<WebSocketStream<TcpStream>> {
+    web_sockets
+        .iter()
+        .position(|ws| ws.dashboard.eq(&dashboard))
+        .or_else(|| first_index(web_sockets))
+        .map(|i| web_sockets.remove(i).ws)
+}
+
+fn first_index<V>(vec: &Vec<V>) -> Option<usize> {
+    if !vec.is_empty() {
+        Some(0)
+    } else {
+        None
+    }
 }
