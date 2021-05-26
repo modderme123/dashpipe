@@ -67,8 +67,7 @@ pub async fn run_daemon(port: u16, once_only: bool) {
     }
 }
 
-/** Handle a connection to the daemon server from the browser or command line client.
- */
+/// Handle a connection to the daemon server from the browser or command line client.
 async fn handle_connect(
     cxn: (TcpStream, SocketAddr),
     connections_ref: Arc<Mutex<Connections>>,
@@ -112,6 +111,9 @@ async fn forward(cli: CliConnection, mut ws: WebSocketStream<TcpStream>) {
     debug!("[forward] done");
 }
 
+/// Connect an incoming browser web socket to an appropriate cli connection stream.
+///
+/// If no cli connection is available, save the browser socket in Connections.
 async fn connect_ws(
     mut ws: WebSocketStream<TcpStream>,
     connections: &mut Connections,
@@ -121,7 +123,7 @@ async fn connect_ws(
         debug!("[daemon] parsed ws header {:?}", header);
 
         let dashboard = header.current_dashboard;
-        let cli_opt = get_cli(&dashboard, &mut connections.cli_connections);
+        let cli_opt = matching_cli_connection(&dashboard, &mut connections.cli_connections);
 
         match cli_opt {
             Some(cli) => Some(tokio::spawn(forward(cli, ws))),
@@ -134,42 +136,16 @@ async fn connect_ws(
     })
 }
 
-fn get_cli(
-    dashboard: &Option<String>,
-    cli_connections: &mut Vec<CliConnection>,
-) -> Option<CliConnection> {
-    cli_connections
-        .iter()
-        .position(|c| c.dashboard.eq(&dashboard))
-        .or_else(|| {
-            if !cli_connections.is_empty() {
-                Some(0)
-            } else {
-                None
-            }
-        })
-        .map(|i| cli_connections.remove(i))
-}
-
-fn get_ws(
-    dashboard: &Option<String>,
-    web_sockets: &mut Vec<WsConnection>,
-) -> Option<WebSocketStream<TcpStream>> {
-    dashboard.as_ref().and_then(|d| {
-        let found = web_sockets
-            .iter()
-            .position(|ws| ws.dashboard.eq(&Some(d.clone())));
-        found.map(|i| web_sockets.remove(i).ws)
-    })
-    // .or_else(|| web_sockets.iter_mut().next().map(|w| w.ws))
-}
-
+/// Route an incoming cli stream to a matching browser web socket if available.
+///
+/// If no appropriate browser is connected, save the cli stream in Connections awaiting a future
+/// browser connection
 async fn connect_cli(mut cli: TcpStream, connections: &mut Connections) -> Option<JoinHandle<()>> {
     let header_opt = proto::parse_cli_header(&mut cli).await;
     header_opt.and_then(|header| {
         debug!("[daemon] client header: {:?}", &header);
         let dashboard = proto::get_string_field(&header.json, "dashboard");
-        let ws_opt = get_ws(&dashboard, &mut connections.web_sockets);
+        let ws_opt = matching_browser_ws(&dashboard, &mut connections.web_sockets);
 
         let connection = CliConnection {
             dashboard,
@@ -186,4 +162,38 @@ async fn connect_cli(mut cli: TcpStream, connections: &mut Connections) -> Optio
             }
         }
     })
+}
+
+/// return a CliConnection for a given dashboard.
+/// If no dashboard is specified, return the first CliConnection.
+fn matching_cli_connection(
+    dashboard: &Option<String>,
+    cli_connections: &mut Vec<CliConnection>,
+) -> Option<CliConnection> {
+    cli_connections
+        .iter()
+        .position(|c| c.dashboard.eq(&dashboard))
+        .or_else(|| first_index(cli_connections))
+        .map(|i| cli_connections.remove(i))
+}
+
+/// return a browser websocket for a given dashboard.
+/// If no dashboard is specified, return the first websocket.
+fn matching_browser_ws(
+    dashboard: &Option<String>,
+    web_sockets: &mut Vec<WsConnection>,
+) -> Option<WebSocketStream<TcpStream>> {
+    web_sockets
+        .iter()
+        .position(|ws| ws.dashboard.eq(&dashboard))
+        .or_else(|| first_index(web_sockets))
+        .map(|i| web_sockets.remove(i).ws)
+}
+
+fn first_index<V>(vec: &Vec<V>) -> Option<usize> {
+    if !vec.is_empty() {
+        Some(0)
+    } else {
+        None
+    }
 }
