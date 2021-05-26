@@ -2,9 +2,8 @@ use crate::proto;
 use futures_util::StreamExt;
 use futures_util::{stream::FuturesUnordered, SinkExt};
 use log::*;
-use std::hash::Hash;
 use std::sync::Arc;
-use std::{collections::HashMap, net::SocketAddr, option::Option};
+use std::{net::SocketAddr, option::Option};
 use tokio::sync::Mutex;
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -139,26 +138,30 @@ fn get_cli(
     dashboard: &Option<String>,
     cli_connections: &mut Vec<CliConnection>,
 ) -> Option<CliConnection> {
-    dashboard
-        .and_then(|d| {
-            let found = cli_connections
-                .iter()
-                .position(|c| c.dashboard.eq(dashboard));
-            found.map(|i| cli_connections.remove(i))
+    cli_connections
+        .iter()
+        .position(|c| c.dashboard.eq(&dashboard))
+        .or_else(|| {
+            if !cli_connections.is_empty() {
+                Some(0)
+            } else {
+                None
+            }
         })
-        .or_else(|| cli_connections.iter_mut().next().map(|r| *r))
+        .map(|i| cli_connections.remove(i))
 }
 
 fn get_ws(
     dashboard: &Option<String>,
     web_sockets: &mut Vec<WsConnection>,
 ) -> Option<WebSocketStream<TcpStream>> {
-    dashboard
-        .and_then(|d| {
-            let found = web_sockets.iter().position(|ws| ws.dashboard.eq(dashboard));
-            found.map(|i| web_sockets.remove(i).ws)
-        })
-        .or_else(|| web_sockets.iter_mut().next().map(|w| w.ws))
+    dashboard.as_ref().and_then(|d| {
+        let found = web_sockets
+            .iter()
+            .position(|ws| ws.dashboard.eq(&Some(d.clone())));
+        found.map(|i| web_sockets.remove(i).ws)
+    })
+    // .or_else(|| web_sockets.iter_mut().next().map(|w| w.ws))
 }
 
 async fn connect_cli(mut cli: TcpStream, connections: &mut Connections) -> Option<JoinHandle<()>> {
@@ -169,7 +172,7 @@ async fn connect_cli(mut cli: TcpStream, connections: &mut Connections) -> Optio
         let ws_opt = get_ws(&dashboard, &mut connections.web_sockets);
 
         let connection = CliConnection {
-            dashboard: dashboard,
+            dashboard,
             stream: cli,
             header,
         };
@@ -183,12 +186,4 @@ async fn connect_cli(mut cli: TcpStream, connections: &mut Connections) -> Optio
             }
         }
     })
-}
-
-/// Remove one element from a hash map if it is non-empty
-fn remove_one<K, V>(hash: &mut HashMap<K, V>) -> Option<V>
-where
-    K: Hash + Eq + Clone,
-{
-    hash.keys().next().cloned().and_then(|k| hash.remove(&k))
 }
