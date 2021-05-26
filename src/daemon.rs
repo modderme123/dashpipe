@@ -15,11 +15,8 @@ use tokio_util::io::ReaderStream;
 
 #[derive(Debug, Default)]
 struct Connections {
-    /// webssockets indexed by dashboard name or "" if unspecified
-    web_sockets: HashMap<String, WebSocketStream<TcpStream>>,
-
-    /// cli sockets indexed by target dashboard name or "" if unspecified
-    cli_connections: HashMap<String, CliConnection>,
+    web_sockets: Vec<WsConnection>,
+    cli_connections: Vec<CliConnection>,
 }
 
 impl Connections {
@@ -30,8 +27,14 @@ impl Connections {
 
 #[derive(Debug)]
 struct CliConnection {
+    dashboard: Option<String>,
     stream: TcpStream,
     header: proto::ProtocolHeader,
+}
+#[derive(Debug)]
+struct WsConnection {
+    dashboard: Option<String>,
+    ws: WebSocketStream<TcpStream>,
 }
 
 /** A server that listens for connections from command line clients and web browsers.
@@ -74,6 +77,12 @@ async fn handle_connect(
     let (stream, _) = cxn;
     let mut connections = connections_ref.lock().await;
 
+    trace!(
+        "[daemon] handle_connect: cli connections: {}, ws: {}",
+        connections.cli_connections.len(),
+        connections.web_sockets.len()
+    );
+
     let mut front = [0u8; 14];
     stream.peek(&mut front).await.expect("peek failed");
     if front == *b"GET / HTTP/1.1" {
@@ -114,7 +123,7 @@ async fn connect_ws(
         web_sockets,
     } = connections;
     header_opt.and_then(|header| {
-        debug!("[daemon] parsed header {:?}", header);
+        debug!("[daemon] parsed ws header {:?}", header);
 
         let dash_opt = header.current_dashboard;
 
@@ -122,6 +131,8 @@ async fn connect_ws(
             .clone()
             .and_then(|d| cli_sockets.remove(&d))
             .or_else(|| remove_one(cli_sockets));
+
+        // TODO send second cli if there is more than one compatible one waiting..
 
         match cli_opt {
             Some(cli) => Some(tokio::spawn(forward(cli, ws))),
@@ -134,6 +145,13 @@ async fn connect_ws(
     })
 }
 
+fn get_ws(
+    dashboard: &Option<String>,
+    web_sockets: &mut Vec<WsConnection>,
+) -> Option<WebSocketStream<TcpStream>> {
+    web_sockets.
+}
+
 async fn connect_cli(mut cli: TcpStream, connections: &mut Connections) -> Option<JoinHandle<()>> {
     let Connections {
         cli_connections,
@@ -142,13 +160,14 @@ async fn connect_cli(mut cli: TcpStream, connections: &mut Connections) -> Optio
     let header_opt = proto::parse_cli_header(&mut cli).await;
     header_opt.and_then(|header| {
         debug!("[daemon] client header: {:?}", &header);
-        let dash_opt = proto::get_string_field(&header.json, "dashboard");
-        let ws_opt = dash_opt
+        let dashboard = proto::get_string_field(&header.json, "dashboard");
+        let ws_opt = dashboard
             .clone()
             .and_then(|d| web_sockets.remove(&d))
             .or_else(|| remove_one(web_sockets));
 
         let connection = CliConnection {
+            dashboard: dashboard,
             stream: cli,
             header,
         };
@@ -157,8 +176,7 @@ async fn connect_cli(mut cli: TcpStream, connections: &mut Connections) -> Optio
             // RUST how to we write this with map & or_else?
             Some(ws) => Some(tokio::spawn(forward(connection, ws))),
             _ => {
-                let dash_name = dash_opt.unwrap_or_else(|| "".to_owned());
-                cli_connections.insert(dash_name, connection);
+                cli_connections.push(connection);
                 None
             }
         }
