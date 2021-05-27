@@ -1,6 +1,7 @@
 mod client;
 mod daemon;
 mod proto;
+mod util;
 
 use fork::{chdir, fork, setsid, Fork};
 use log::*;

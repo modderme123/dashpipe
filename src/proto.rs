@@ -1,8 +1,6 @@
-use std::error::Error;
-
+use crate::util::ResultB;
 use futures_util::StreamExt;
 use log::*;
-use quick_error::quick_error;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_with::skip_serializing_none;
@@ -46,18 +44,8 @@ pub fn client_header_bytes(args: &PipeArgs) -> Vec<u8> {
     bytes
 }
 
-type BoxError = Box<dyn Error>;
-type ResultB<T> = std::result::Result<T, BoxError>;
 
-quick_error! {
-    #[derive(Debug)]
-    pub enum EE {
-        MyError(msg: &'static str) {
-            display("Error {}", msg)
-        }
-    }
-}
-
+/// Consume a protocol header from a command line client tcp stream. 
 pub async fn parse_cli_header2(input: &mut TcpStream) -> ResultB<ProtocolHeader> {
     let version = input.read_u16().await?;
     assert_eq!(version, PROTOCOL_VERSION);
@@ -70,17 +58,9 @@ pub async fn parse_cli_header2(input: &mut TcpStream) -> ResultB<ProtocolHeader>
     Ok(ProtocolHeader {
         version,
         json_buffer,
-        json
+        json,
     })
-
-
-    // let e = EE::MyError("foo");
-    // let be = Box::new(e);
-    // let de: Box<dyn std::error::Error> = be.into();
-    // // let rr: Result2<u16> = version.map_err(|e|e.into());
-    // Err(de)
 }
-
 
 /** Consume a protocol header from a command line client tcp stream.  */
 pub async fn parse_cli_header(input: &mut TcpStream) -> Option<ProtocolHeader> {
