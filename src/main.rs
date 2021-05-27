@@ -12,7 +12,7 @@ use util::EE::MyError;
 
 use crate::util::box_error;
 
-fn main() {
+fn main() -> ResultB<()> {
     env_logger::init();
     // env_logger::builder().filter_level(LevelFilter::Debug).init(); // uncomment to set logging level in code
 
@@ -23,11 +23,9 @@ fn main() {
         once,
     } = client::cmd_line_arguments();
 
-    let result = if daemon_only {
+    if daemon_only {
         if let Ok(Fork::Child) = fork() {
-            fork_daemon(port, once)
-        } else {
-            Ok(())
+            fork_daemon(port, once)?
         }
     } else {
         if client::client(port, &pipe_args).is_err() {
@@ -35,15 +33,14 @@ fn main() {
                 Fork::Parent(_) => {
                     debug!("Starting daemon and sleeping 500ms"); // TODO fix race condition
                     sleep(Duration::from_millis(500));
-                    client::client(port, &pipe_args)
+                    client::client(port, &pipe_args)?
                 }
-                Fork::Child => fork_daemon(port, once),
+                Fork::Child => fork_daemon(port, once)?,
             }
-        } else {
-            Ok(())
         }
-    };
-    result.unwrap_or_else(|e| warn!("{:?}", e));
+    }
+    // result.unwrap_or_else(|e| warn!("{:?}", e));
+    Ok(())
 }
 
 fn fork_daemon(port: u16, once: bool) -> ResultB<()> {
