@@ -7,6 +7,10 @@ use client::CmdArguments;
 use fork::{chdir, fork, setsid, Fork};
 use log::*;
 use std::{thread::sleep, time::Duration};
+use util::ResultB;
+use util::EE::MyError;
+
+use crate::util::box_error;
 
 fn main() {
     env_logger::init();
@@ -19,9 +23,11 @@ fn main() {
         once,
     } = client::cmd_line_arguments();
 
-    if daemon_only {
+    let result = if daemon_only {
         if let Ok(Fork::Child) = fork() {
-            fork_daemon(port, once);
+            fork_daemon(port, once)
+        } else {
+            Ok(())
         }
     } else {
         if client::client(port, &pipe_args).is_err() {
@@ -29,23 +35,24 @@ fn main() {
                 Fork::Parent(_) => {
                     debug!("Starting daemon and sleeping 500ms"); // TODO fix race condition
                     sleep(Duration::from_millis(500));
-                    client::client(port, &pipe_args).unwrap();
+                    client::client(port, &pipe_args)
                 }
-                Fork::Child => {
-                    fork_daemon(port, once);
-                }
+                Fork::Child => fork_daemon(port, once),
             }
+        } else {
+            Ok(())
         }
-    }
+    };
+    result.unwrap_or_else(|e| warn!("{:?}", e));
 }
 
-fn fork_daemon(port: u16, once: bool) {
+fn fork_daemon(port: u16, once: bool) -> ResultB<()> {
     debug!("[daemon] starting");
-    if setsid().is_ok() {
-        chdir().unwrap();
-        // close_fd().unwrap(); // comment out to enable debug logging in daemon
-        if let Ok(Fork::Child) = fork() {
-            daemon::run_daemon(port, once);
-        }
+    setsid().map_err(|_e| box_error(MyError("setsid fail")))?;
+    chdir().map_err(|_e| box_error(MyError("chdir fail")))?;
+    // close_fd().unwrap(); // comment out to enable debug logging in daemon
+    if let Ok(Fork::Child) = fork() {
+        daemon::run_daemon(port, once);
     }
+    Ok(())
 }
