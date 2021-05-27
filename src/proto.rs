@@ -62,11 +62,6 @@ pub async fn parse_cli_header2(input: &mut TcpStream) -> ResultB<ProtocolHeader>
     })
 }
 
-/** Consume a protocol header from a command line client tcp stream.  */
-pub async fn parse_cli_header(input: &mut TcpStream) -> Option<ProtocolHeader> {
-    parse_cli_header2(input).await.ok()
-}
-
 /** json messages sent from client to daemon to browser */
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize)]

@@ -1,4 +1,5 @@
 use crate::proto;
+use crate::util::ResultB;
 use futures_util::StreamExt;
 use futures_util::{stream::FuturesUnordered, SinkExt};
 use log::*;
@@ -87,7 +88,7 @@ async fn handle_connect(
         let ws = accept_async(stream).await.unwrap();
         connect_ws(ws, &mut connections).await
     } else {
-        connect_cli(stream, &mut connections).await
+        connect_cli(stream, &mut connections).await.ok().flatten()
     }
 }
 
@@ -140,28 +141,29 @@ async fn connect_ws(
 ///
 /// If no appropriate browser is connected, save the cli stream in Connections awaiting a future
 /// browser connection
-async fn connect_cli(mut cli: TcpStream, connections: &mut Connections) -> Option<JoinHandle<()>> {
-    let header_opt = proto::parse_cli_header(&mut cli).await;
-    header_opt.and_then(|header| {
-        debug!("[daemon] client header: {:?}", &header);
-        let dashboard = proto::get_string_field(&header.json, "dashboard");
-        let ws_opt = matching_browser_ws(&dashboard, &mut connections.web_sockets);
+async fn connect_cli(
+    mut cli: TcpStream,
+    connections: &mut Connections,
+) -> ResultB<Option<JoinHandle<()>>> {
+    let header = proto::parse_cli_header2(&mut cli).await?;
+    debug!("[daemon] client header: {:?}", &header);
+    let dashboard = proto::get_string_field(&header.json, "dashboard");
+    let ws_opt = matching_browser_ws(&dashboard, &mut connections.web_sockets);
 
-        let connection = CliConnection {
-            dashboard,
-            stream: cli,
-            header,
-        };
+    let connection = CliConnection {
+        dashboard,
+        stream: cli,
+        header,
+    };
 
-        match ws_opt {
-            // RUST how to we write this with map & or_else?
-            Some(ws) => Some(tokio::spawn(forward(connection, ws))),
-            _ => {
-                connections.cli_connections.push(connection);
-                None
-            }
+    match ws_opt {
+        // RUST how to we write this with map & or_else?
+        Some(ws) => Ok(Some(tokio::spawn(forward(connection, ws)))),
+        _ => {
+            connections.cli_connections.push(connection);
+            Ok(None)
         }
-    })
+    }
 }
 
 /// return a CliConnection for a given dashboard.
