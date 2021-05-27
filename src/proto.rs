@@ -71,7 +71,7 @@ pub struct PipeArgs {
     pub chart: Option<String>,
     #[serde(rename = "noShow")]
     pub no_show: Option<bool>,
-    pub append: Option<bool>,
+    pub replace: Option<bool>,
 }
 
 /** Write a protocol header into a byte array */
