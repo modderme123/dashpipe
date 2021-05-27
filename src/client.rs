@@ -1,8 +1,7 @@
-use crate::proto::{self, PipeArgs};
+use crate::{proto::{self, PipeArgs}, util::ResultB};
 use clap::{App, Arg};
 use futures_util::{io::AsyncWriteExt as AsyncWriteExt2, StreamExt};
 use log::*;
-use std::error::Error;
 use tokio::{
     self,
     io::{self, AsyncWriteExt},
@@ -11,7 +10,7 @@ use tokio::{
 use tokio_util::{compat::TokioAsyncWriteCompatExt, io::ReaderStream};
 
 #[tokio::main]
-pub async fn client(port: u16, args: &PipeArgs) -> Result<(), Box<dyn Error>> {
+pub async fn client(port: u16, args: &PipeArgs) -> ResultB<()> {
     let address = proto::server_address(port);
     let mut stream = TcpStream::connect(&address).await?;
     debug!("[client] Connected to daemon {}", address);
