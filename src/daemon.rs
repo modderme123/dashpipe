@@ -52,9 +52,12 @@ pub async fn run_daemon(port: u16, once_only: bool) {
     loop {
         tokio::select! {
             Ok(cxn) = server.accept() => {
-              let fwd = handle_connect(cxn, connections_ref.clone()).await;
-              if let Some(join_handle) = fwd {
-                  waits.push(join_handle);
+              match handle_connect(cxn, connections_ref.clone()).await {
+                Ok(Some(join_handle)) => {
+                    waits.push(join_handle);
+                },
+                Ok(None) => {},
+                Err(e) => warn!("{:?}", e),
               }
             },
             Some(x) = waits.next() => {
@@ -72,7 +75,7 @@ pub async fn run_daemon(port: u16, once_only: bool) {
 async fn handle_connect(
     cxn: (TcpStream, SocketAddr),
     connections_ref: Arc<Mutex<Connections>>,
-) -> Option<JoinHandle<()>> {
+) -> ResultB<Option<JoinHandle<()>>> {
     let (stream, _) = cxn;
     let mut connections = connections_ref.lock().await;
 
@@ -86,9 +89,9 @@ async fn handle_connect(
     stream.peek(&mut front).await.expect("peek failed");
     if front == *b"GET / HTTP/1.1" {
         let ws = accept_async(stream).await.unwrap();
-        connect_ws(ws, &mut connections).await.ok().flatten()
+        connect_ws(ws, &mut connections).await
     } else {
-        connect_cli(stream, &mut connections).await.ok().flatten()
+        connect_cli(stream, &mut connections).await
     }
 }
 
