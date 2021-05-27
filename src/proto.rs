@@ -1,5 +1,8 @@
+use std::error::Error;
+
 use futures_util::StreamExt;
 use log::*;
+use quick_error::quick_error;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_with::skip_serializing_none;
@@ -43,21 +46,45 @@ pub fn client_header_bytes(args: &PipeArgs) -> Vec<u8> {
     bytes
 }
 
-/** Consume a protocol header from a command line client tcp stream.  */
-pub async fn parse_cli_header(input: &mut TcpStream) -> Option<ProtocolHeader> {
-    let version = input.read_u16().await.unwrap();
+type BoxError = Box<dyn Error>;
+type ResultB<T> = std::result::Result<T, BoxError>;
+
+quick_error! {
+    #[derive(Debug)]
+    pub enum EE {
+        MyError(msg: &'static str) {
+            display("Error {}", msg)
+        }
+    }
+}
+
+pub async fn parse_cli_header2(input: &mut TcpStream) -> ResultB<ProtocolHeader> {
+    let version = input.read_u16().await?;
     assert_eq!(version, PROTOCOL_VERSION);
-    let header_size = input.read_u16().await.unwrap();
+    let header_size = input.read_u16().await?;
     let mut json_buffer = vec![0u8; header_size as usize];
-    let header_json_bytes = input.read_exact(&mut json_buffer).await.unwrap();
+    let header_json_bytes = input.read_exact(&mut json_buffer).await?;
     assert_eq!(header_json_bytes as u16, header_size);
 
-    let json: Option<serde_json::Value> = serde_json::from_slice(&json_buffer).ok();
-    json.map(|json| ProtocolHeader {
+    let json = serde_json::from_slice(&json_buffer)?;
+    Ok(ProtocolHeader {
         version,
         json_buffer,
         json
     })
+
+
+    // let e = EE::MyError("foo");
+    // let be = Box::new(e);
+    // let de: Box<dyn std::error::Error> = be.into();
+    // // let rr: Result2<u16> = version.map_err(|e|e.into());
+    // Err(de)
+}
+
+
+/** Consume a protocol header from a command line client tcp stream.  */
+pub async fn parse_cli_header(input: &mut TcpStream) -> Option<ProtocolHeader> {
+    parse_cli_header2(input).await.ok()
 }
 
 /** json messages sent from client to daemon to browser */
