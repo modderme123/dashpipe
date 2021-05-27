@@ -1,4 +1,4 @@
-use crate::util::ResultB;
+use crate::util::{ResultB, EE::MyError};
 use futures_util::StreamExt;
 use log::*;
 use serde::{Deserialize, Serialize};
@@ -44,8 +44,7 @@ pub fn client_header_bytes(args: &PipeArgs) -> Vec<u8> {
     bytes
 }
 
-
-/// Consume a protocol header from a command line client tcp stream. 
+/// Consume a protocol header from a command line client tcp stream.
 pub async fn parse_cli_header2(input: &mut TcpStream) -> ResultB<ProtocolHeader> {
     let version = input.read_u16().await?;
     assert_eq!(version, PROTOCOL_VERSION);
@@ -99,11 +98,11 @@ pub struct BrowserHeader {
 }
 
 /** Parse a single websocket message sent by the browser when it connects */
-pub async fn parse_browser_header(ws: &mut WebSocketStream<TcpStream>) -> Option<BrowserHeader> {
-    let header_opt = read_ws_header(ws).await;
-    header_opt.map(|header_value| BrowserHeader {
-        current_dashboard: get_string_field(&header_value, "currentDashboard"),
-        browser_id: get_string_field(&header_value, "browserId"),
+pub async fn parse_browser_header(ws: &mut WebSocketStream<TcpStream>) -> ResultB<BrowserHeader> {
+    let header = read_ws_header(ws).await?;
+    Ok(BrowserHeader {
+        current_dashboard: get_string_field(&header, "currentDashboard"),
+        browser_id: get_string_field(&header, "browserId"),
     })
 }
 
@@ -116,18 +115,22 @@ pub fn get_string_field(value: &serde_json::Value, field: &str) -> Option<String
 }
 
 /** Read the header sent by the browser to the daemon */
-async fn read_ws_header(ws: &mut WebSocketStream<TcpStream>) -> Option<serde_json::Value> {
-    let next_msg = (*ws).next().await;
+async fn read_ws_header(ws: &mut WebSocketStream<TcpStream>) -> ResultB<serde_json::Value> {
+    let next_msg = ws.next().await.unwrap(); // FIXME
     match next_msg {
-        Some(Ok(msg)) => {
+        Ok(msg) => {
             debug!("[daemon] ws message {:?}", msg);
             msg.to_text()
-                .map(|text| serde_json::from_str(text).unwrap())
-                .ok()
+                .map_err(|e| e.into())
+                .and_then(|text| parse_json(text))
         }
         _ => {
             warn!("[daemon] no message received {:?}", next_msg);
-            None
+            Err(MyError("no ws message received").into())
         }
     }
+}
+
+fn parse_json(text: &str) -> ResultB<serde_json::Value> {
+    serde_json::from_str(text).map_err(|e| e.into())
 }

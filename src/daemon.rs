@@ -86,7 +86,7 @@ async fn handle_connect(
     stream.peek(&mut front).await.expect("peek failed");
     if front == *b"GET / HTTP/1.1" {
         let ws = accept_async(stream).await.unwrap();
-        connect_ws(ws, &mut connections).await
+        connect_ws(ws, &mut connections).await.ok().flatten()
     } else {
         connect_cli(stream, &mut connections).await.ok().flatten()
     }
@@ -118,23 +118,21 @@ async fn forward(cli: CliConnection, mut ws: WebSocketStream<TcpStream>) {
 async fn connect_ws(
     mut ws: WebSocketStream<TcpStream>,
     connections: &mut Connections,
-) -> Option<JoinHandle<()>> {
-    let header_opt = proto::parse_browser_header(&mut ws).await;
-    header_opt.and_then(|header| {
-        debug!("[daemon] parsed ws header {:?}", header);
+) -> ResultB<Option<JoinHandle<()>>> {
+    let header = proto::parse_browser_header(&mut ws).await?;
+    debug!("[daemon] parsed ws header {:?}", header);
 
-        let dashboard = header.current_dashboard;
-        let cli_opt = matching_cli_connection(&dashboard, &mut connections.cli_connections);
+    let dashboard = header.current_dashboard;
+    let cli_opt = matching_cli_connection(&dashboard, &mut connections.cli_connections);
 
-        match cli_opt {
-            Some(cli) => Some(tokio::spawn(forward(cli, ws))),
-            _ => {
-                let ws_connection = WsConnection { dashboard, ws };
-                connections.web_sockets.push(ws_connection);
-                None
-            }
+    match cli_opt {
+        Some(cli) => Ok(Some(tokio::spawn(forward(cli, ws)))),
+        _ => {
+            let ws_connection = WsConnection { dashboard, ws };
+            connections.web_sockets.push(ws_connection);
+            Ok(None)
         }
-    })
+    }
 }
 
 /// Route an incoming cli stream to a matching browser web socket if available.
