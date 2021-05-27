@@ -1,4 +1,7 @@
-use crate::{proto::{self, PipeArgs}, util::ResultB};
+use crate::{
+    proto::{self, PipeArgs},
+    util::ResultB,
+};
 use clap::{App, Arg};
 use futures_util::{io::AsyncWriteExt as AsyncWriteExt2, StreamExt};
 use log::*;
@@ -26,7 +29,14 @@ pub async fn client(port: u16, args: &PipeArgs) -> ResultB<()> {
     Ok(())
 }
 
-pub fn cmd_line_arguments() -> (PipeArgs, u16) {
+pub struct CmdArguments {
+    pub pipe_args: PipeArgs,
+    pub port: u16,
+    pub daemon_only: bool,
+    pub once: bool,
+}
+
+pub fn cmd_line_arguments() -> CmdArguments {
     let arg_matches = App::new("DashPipe")
         .version("0.1")
         .author("Modder Me <modderme123@gmail.com>")
@@ -41,6 +51,7 @@ pub fn cmd_line_arguments() -> (PipeArgs, u16) {
         )
         .arg_from_usage("--name=[name] 'name for uploaded data set'")
         .arg_from_usage("--replace 'replace named data if it already exists'")
+        .arg_from_usage("--daemon 'run daemon only'")
         .arg_from_usage("--dashboard=[dashboard] 'dashboard that will display the data'")
         .arg_from_usage("--chart=[chart] 'name of existing chart that will display the data'")
         .arg_from_usage("--no-show 'send the data without displaying it'")
@@ -49,6 +60,7 @@ pub fn cmd_line_arguments() -> (PipeArgs, u16) {
 
     let port_str = arg_matches.value_of("port").unwrap();
     let port: u16 = port_str.parse().unwrap();
+    let daemon_only = arg_matches.is_present("daemon");
     let pipe_args = PipeArgs {
         name: arg_matches.value_of("name").map(str::to_owned),
         dashboard: arg_matches.value_of("dashboard").map(str::to_owned),
@@ -57,5 +69,12 @@ pub fn cmd_line_arguments() -> (PipeArgs, u16) {
         replace: arg_matches.is_present("replace").then(|| true),
         once: arg_matches.is_present("once").then(|| true),
     };
-    (pipe_args, port)
+    let once = arg_matches.is_present("once");
+
+    CmdArguments {
+        pipe_args,
+        port,
+        daemon_only,
+        once,
+    }
 }
