@@ -51,6 +51,7 @@ pub fn cmd_line_arguments() -> CmdArguments {
         )
         .arg_from_usage("--name=[name] 'name for uploaded data set'")
         .arg_from_usage("--replace 'replace named data if it already exists'")
+        .arg_from_usage("--force-new 'store data set with a unique name'")
         .arg_from_usage("--daemon 'run daemon only'")
         .arg_from_usage("--dashboard=[dashboard] 'dashboard that will display the data'")
         .arg_from_usage("--chart=[chart] 'name of existing chart that will display the data'")
@@ -68,6 +69,7 @@ pub fn cmd_line_arguments() -> CmdArguments {
         no_show: arg_matches.is_present("no-show").then(|| true),
         replace: arg_matches.is_present("replace").then(|| true),
         once: arg_matches.is_present("once").then(|| true),
+        force_new: arg_matches.is_present("force-new").then(|| true),
     };
     let once = arg_matches.is_present("once");
 

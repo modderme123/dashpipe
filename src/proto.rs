@@ -72,6 +72,8 @@ pub struct PipeArgs {
     #[serde(rename = "noShow")]
     pub no_show: Option<bool>,
     pub replace: Option<bool>,
+    #[serde(rename = "forceNew")]
+    pub force_new: Option<bool>,
 }
 
 /** Write a protocol header into a byte array */
