@@ -110,6 +110,7 @@ async fn forward(cli: CliConnection, mut ws: WebSocketStream<TcpStream>) {
     ws.send(header_message)
         .await
         .unwrap_or_else(|e| warn!("[daemon] header forwarding error {:?}", e)); // note this doesn't fail, even if the connection is closed
+    // TODO try peek on ws to see if that fails
 
     let reader_stream = ReaderStream::new(cli.stream);
     let message_stream = reader_stream.map(|x| Ok(Message::binary(x.unwrap().to_vec())));
@@ -118,7 +119,7 @@ async fn forward(cli: CliConnection, mut ws: WebSocketStream<TcpStream>) {
         .await
         .unwrap_or_else(|e| warn!("[daemon] forwarding error {:?}", e));
 
-    debug!("[forward] done");
+    debug!("[forward] done"); // this fails if the connection is closed
 }
 
 /// Connect an incoming browser web socket to an appropriate cli connection stream.
