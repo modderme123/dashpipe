@@ -27,16 +27,14 @@ fn main() -> ResultB<()> {
         if let Ok(Fork::Child) = fork() {
             fork_daemon(port, once)?
         }
-    } else {
-        if client::client(port, &pipe_args).is_err() {
-            match fork().unwrap() {
-                Fork::Parent(_) => {
-                    debug!("Starting daemon and sleeping 500ms"); // TODO fix race condition
-                    sleep(Duration::from_millis(500));
-                    client::client(port, &pipe_args)?
-                }
-                Fork::Child => fork_daemon(port, once)?,
+    } else if client::client(port, &pipe_args).is_err() {
+        match fork().unwrap() {
+            Fork::Parent(_) => {
+                debug!("Starting daemon and sleeping 500ms"); // TODO fix race condition
+                sleep(Duration::from_millis(500));
+                client::client(port, &pipe_args)?
             }
+            Fork::Child => fork_daemon(port, once)?,
         }
     }
     // result.unwrap_or_else(|e| warn!("{:?}", e));

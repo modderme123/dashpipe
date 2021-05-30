@@ -111,6 +111,7 @@ async fn forward(cli: CliConnection, mut ws: WebSocketStream<TcpStream>) {
         .await
         .unwrap_or_else(|e| warn!("[daemon] header forwarding error {:?}", e)); // note this doesn't fail, even if the connection is closed
     // TODO try peek on ws to see if that fails
+    // let p = ws.peekable();
 
     let reader_stream = ReaderStream::new(cli.stream);
     let message_stream = reader_stream.map(|x| Ok(Message::binary(x.unwrap().to_vec())));
@@ -200,7 +201,7 @@ fn matching_browser_ws(
         .map(|i| web_sockets.remove(i).ws)
 }
 
-fn first_index<V>(vec: &Vec<V>) -> Option<usize> {
+fn first_index<V>(vec: &[V]) -> Option<usize> {
     if !vec.is_empty() {
         Some(0)
     } else {
