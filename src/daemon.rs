@@ -1,5 +1,5 @@
-use crate::proto;
-use crate::util::ResultB;
+use crate::proto::{self, ping_message};
+use crate::util::{ResultB, EE::MyError};
 use futures_util::StreamExt;
 use futures_util::{stream::FuturesUnordered, SinkExt};
 use log::*;
@@ -202,21 +202,35 @@ async fn matching_browser_ws(
         .or_else(|| first_index(web_sockets))
         .map(|i| web_sockets.remove(i).ws);
 
-    // TODO send ws ping message to verify connection is still alive
-        
-    // match sock {
-    //     Some(ws) => {
-    //         let r = ping_ws(&mut ws).await
-    //         let b = r.map_err(|_e| matching_browser_ws(dashboard, webSockets).await)
-    //     }
-    // }
-    sock
+    match sock {
+        Some(mut ws) => {
+            let pinged = ping_ws(&mut ws).await;
+            match pinged {
+                Ok(()) => (),
+                Err(e) => {
+                  // TODO loop on new socket
+                  debug!("socket error: {:?}", e)
+                } 
+            }
+            Some(ws)
+        }
+        None => None,
+    }
 }
 
-// async fn ping_ws(ws:&mut WebSocketStream<TcpStream>)->ResultB<()>{
-//     ws.send(pingMessage).await()
-//     ws.
-// }
+async fn ping_ws(ws: &mut WebSocketStream<TcpStream>) -> ResultB<()> {
+    ws.send(ping_message()).await?;
+    let response = ws.next().await;
+    match response {
+        Some(Ok(pong)) => {
+            // TODO verify pong message
+            trace!("received pong: {:?}", pong);
+            Ok(())
+        }
+        Some(Err(err)) => Err(err.into()),
+        _ => Err(MyError("missing pong").into()),
+    }
+}
 
 fn first_index<V>(vec: &[V]) -> Option<usize> {
     if !vec.is_empty() {
