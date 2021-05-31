@@ -19,7 +19,6 @@ pub struct ProtocolHeader {
 }
 
 const PROTOCOL_VERSION: u16 = 1u16;
-const PROTOCOL_VERSION_BYTES: [u8; 2] = PROTOCOL_VERSION.to_be_bytes();
 
 pub fn server_address(port: u16) -> String {
     format!("127.0.0.1:{}", port)
@@ -27,23 +26,19 @@ pub fn server_address(port: u16) -> String {
 
 /** Write command line arguments into a protocol header. */
 pub fn client_header_bytes(args: &PipeArgs) -> Vec<u8> {
-    let mut bytes = Vec::new();
-    let header_vec = serde_json::to_vec(&args).unwrap();
-    let length = header_vec.len() as u16;
-    let length_bytes = length.to_be_bytes();
+    let json_buffer = serde_json::to_vec(&args).unwrap();
 
     if log::max_level() >= log::Level::Debug {
         let header_str = serde_json::to_string(&args).unwrap();
         debug!("[client] header: {}", &header_str);
     }
+    let header = ProtocolHeader {
+        json_buffer,
+        version: PROTOCOL_VERSION,
+        json: serde_json::Value::Null // ignored
+    };
 
-    // TODO use header_to_bytes
-
-    bytes.extend_from_slice(&PROTOCOL_VERSION_BYTES);
-    bytes.extend_from_slice(&length_bytes);
-    bytes.extend_from_slice(&header_vec);
-
-    bytes
+    header_to_bytes(&header)
 }
 
 /// Consume a protocol header from a command line client tcp stream.
