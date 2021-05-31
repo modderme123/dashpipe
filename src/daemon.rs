@@ -112,8 +112,8 @@ async fn forward(cli: CliConnection, mut ws: WebSocketStream<TcpStream>) {
     ws.send(header_message)
         .await
         .unwrap_or_else(|e| warn!("[daemon] header forwarding error {:?}", e)); // note this doesn't fail, even if the connection is closed
-    // TODO try peek on ws to see if that fails
-    // let p = ws.peekable();
+                                                                                // TODO try peek on ws to see if that fails
+                                                                                // let p = ws.peekable();
 
     let reader_stream = ReaderStream::new(cli.stream);
     let message_stream = reader_stream.map(|x| Ok(Message::binary(x.unwrap().to_vec())));
@@ -159,7 +159,7 @@ async fn connect_cli(
     let header = proto::parse_cli_header2(&mut cli).await?;
     debug!("[daemon] client header: {:?}", &header);
     let dashboard = proto::get_string_field(&header.json, "dashboard");
-    let ws_opt = matching_browser_ws(&dashboard, &mut connections.web_sockets);
+    let ws_opt = matching_browser_ws(&dashboard, &mut connections.web_sockets).await;
 
     let connection = CliConnection {
         dashboard,
@@ -192,16 +192,31 @@ fn matching_cli_connection(
 
 /// return a browser websocket for a given dashboard.
 /// If no dashboard is specified, return the first websocket.
-fn matching_browser_ws(
+async fn matching_browser_ws(
     dashboard: &Option<String>,
     web_sockets: &mut Vec<WsConnection>,
 ) -> Option<WebSocketStream<TcpStream>> {
-    web_sockets
+    let sock = web_sockets
         .iter()
         .position(|ws| ws.dashboard.eq(&dashboard))
         .or_else(|| first_index(web_sockets))
-        .map(|i| web_sockets.remove(i).ws)
+        .map(|i| web_sockets.remove(i).ws);
+
+    // TODO send ws ping message to verify connection is still alive
+        
+    // match sock {
+    //     Some(ws) => {
+    //         let r = ping_ws(&mut ws).await
+    //         let b = r.map_err(|_e| matching_browser_ws(dashboard, webSockets).await)
+    //     }
+    // }
+    sock
 }
+
+// async fn ping_ws(ws:&mut WebSocketStream<TcpStream>)->ResultB<()>{
+//     ws.send(pingMessage).await()
+//     ws.
+// }
 
 fn first_index<V>(vec: &[V]) -> Option<usize> {
     if !vec.is_empty() {
