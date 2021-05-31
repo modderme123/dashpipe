@@ -65,6 +65,7 @@ pub async fn parse_cli_header2(input: &mut TcpStream) -> ResultB<ProtocolHeader>
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize)]
 pub struct PipeArgs {
+    pub kind: String,
     pub dashboard: Option<String>, // This is only needed for client to daemon
     pub once: Option<bool>,        // This is only needed for client to daemon
     pub name: Option<String>,

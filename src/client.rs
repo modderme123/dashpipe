@@ -63,6 +63,7 @@ pub fn cmd_line_arguments() -> CmdArguments {
     let port: u16 = port_str.parse().unwrap();
     let daemon_only = arg_matches.is_present("daemon");
     let pipe_args = PipeArgs {
+        kind: "data".to_string(),
         name: arg_matches.value_of("name").map(str::to_owned),
         dashboard: arg_matches.value_of("dashboard").map(str::to_owned),
         chart: arg_matches.value_of("chart").map(str::to_owned),
