@@ -22,7 +22,7 @@ const PROTOCOL_VERSION: u16 = 1u16;
 const PROTOCOL_VERSION_BYTES: [u8; 2] = PROTOCOL_VERSION.to_be_bytes();
 
 pub fn server_address(port: u16) -> String {
-    format!("localhost:{}", port)
+    format!("127.0.0.1:{}", port)
 }
 
 /** Write command line arguments into a protocol header. */
