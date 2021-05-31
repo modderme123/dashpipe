@@ -1,4 +1,4 @@
-use crate::proto::{self, ping_message};
+use crate::proto::{self};
 use crate::util::{ResultB, EE::MyError};
 use futures_util::StreamExt;
 use futures_util::{stream::FuturesUnordered, SinkExt};
@@ -194,36 +194,41 @@ async fn matching_browser_ws(
     dashboard: &Option<String>,
     web_sockets: &mut Vec<WsConnection>,
 ) -> Option<WebSocketStream<TcpStream>> {
-    let sock = web_sockets
-        .iter()
-        .position(|ws| ws.dashboard.eq(&dashboard))
-        .or_else(|| first_index(web_sockets))
-        .map(|i| web_sockets.remove(i).ws);
-
-    match sock {
-        Some(mut ws) => {
-            let pinged = ping_ws(&mut ws).await;
-            match pinged {
-                Ok(()) => (),
-                Err(e) => {
-                  // TODO loop on new socket
-                  debug!("socket error: {:?}", e)
-                } 
+    loop {
+        let next = next_matching_ws(dashboard, web_sockets).await;
+        if let Some(mut ws) = next {
+            match ping_ws(&mut ws).await {
+                Ok(()) => return Some(ws),
+                Err(e) => debug!("socket error: {:?}", e),
             }
-            Some(ws)
         }
-        None => None,
     }
 }
 
+async fn next_matching_ws(
+    dashboard: &Option<String>,
+    web_sockets: &mut Vec<WsConnection>,
+) -> Option<WebSocketStream<TcpStream>> {
+    web_sockets
+        .iter()
+        .position(|ws| ws.dashboard.eq(&dashboard))
+        .or_else(|| first_index(web_sockets))
+        .map(|i| web_sockets.remove(i).ws)
+}
+
 async fn ping_ws(ws: &mut WebSocketStream<TcpStream>) -> ResultB<()> {
-    ws.send(ping_message()).await?;
+    ws.send(Message::Ping(vec![])).await?;
     let response = ws.next().await;
     match response {
         Some(Ok(pong)) => {
             // LATER verify pong message
-            trace!("received pong: {:?}", pong);
-            Ok(())
+            if pong.is_pong() {
+                trace!("received pong: {:?}", pong);
+                Ok(())
+            } else {
+                trace!("received not pong: {:?}", pong);
+                Err(MyError("got message, not pong").into())
+            }
         }
         Some(Err(err)) => Err(err.into()),
         _ => Err(MyError("missing pong").into()),

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_with::skip_serializing_none;
 use tokio::{io::AsyncReadExt, net::TcpStream};
-use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
+use tokio_tungstenite::WebSocketStream;
 
 /** Protocol for header message to browser
  *    [version number (16 bits)] [json length 16 bits] [header: json utf8]
@@ -35,7 +35,7 @@ pub fn client_header_bytes(args: &PipeArgs) -> Vec<u8> {
     let header = ProtocolHeader {
         json_buffer,
         version: PROTOCOL_VERSION,
-        json: serde_json::Value::Null // ignored
+        json: serde_json::Value::Null, // ignored
     };
 
     header_to_bytes(&header)
@@ -72,20 +72,6 @@ pub struct PipeArgs {
     pub replace: Option<bool>,
     #[serde(rename = "forceNew")]
     pub force_new: Option<bool>,
-}
-
-pub fn ping_message() -> Message {
-    let json = serde_json::json!({
-       "kind": "ping",
-    });
-    let json_buffer = json.to_string().into_bytes();
-    let header = ProtocolHeader {
-        version: PROTOCOL_VERSION,
-        json,
-        json_buffer,
-    };
-    let bytes = header_to_bytes(&header);
-    Message::binary(bytes)
 }
 
 /** Write a protocol header into a byte array */
