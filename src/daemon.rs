@@ -195,12 +195,12 @@ async fn matching_browser_ws(
     web_sockets: &mut Vec<WsConnection>,
 ) -> Option<WebSocketStream<TcpStream>> {
     loop {
-        let next = next_matching_ws(dashboard, web_sockets).await;
-        if let Some(mut ws) = next {
-            match ping_ws(&mut ws).await {
+        match next_matching_ws(dashboard, web_sockets).await {
+            Some(mut ws) => match ping_ws(&mut ws).await {
                 Ok(()) => return Some(ws),
                 Err(e) => debug!("socket error: {:?}", e),
-            }
+            },
+            None => return None,
         }
     }
 }
