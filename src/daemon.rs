@@ -156,7 +156,7 @@ async fn connect_cli(
     mut cli: TcpStream,
     connections: &mut Connections,
 ) -> ResultB<Option<JoinHandle<()>>> {
-    let header = proto::parse_cli_header2(&mut cli).await?;
+    let header = proto::parse_cli_header(&mut cli).await?;
     debug!("[daemon] client header: {:?}", &header);
     let dashboard = proto::get_string_field(&header.json, "dashboard");
     let ws_opt = matching_browser_ws(&dashboard, &mut connections.web_sockets).await;

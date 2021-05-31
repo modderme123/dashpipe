@@ -47,7 +47,7 @@ pub fn client_header_bytes(args: &PipeArgs) -> Vec<u8> {
 }
 
 /// Consume a protocol header from a command line client tcp stream.
-pub async fn parse_cli_header2(input: &mut TcpStream) -> ResultB<ProtocolHeader> {
+pub async fn parse_cli_header(input: &mut TcpStream) -> ResultB<ProtocolHeader> {
     let version = input.read_u16().await?;
     assert_eq!(version, PROTOCOL_VERSION);
     let header_size = input.read_u16().await?;
