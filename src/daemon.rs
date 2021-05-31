@@ -41,7 +41,9 @@ struct WsConnection {
  * Data from clients is sent to browsers via handle_connect*/
 #[tokio::main]
 pub async fn run_daemon(port: u16, once_only: bool) {
-    let server_bind = TcpListener::bind(proto::server_address(port)).await;
+    let addr = proto::server_address(port);
+    trace!("starting server on {}", addr);
+    let server_bind = TcpListener::bind(addr).await;
 
     match server_bind {
         Ok(server) => server_listen(server, once_only).await,
