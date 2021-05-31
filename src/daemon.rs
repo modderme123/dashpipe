@@ -221,7 +221,7 @@ async fn ping_ws(ws: &mut WebSocketStream<TcpStream>) -> ResultB<()> {
     let response = ws.next().await;
     match response {
         Some(Ok(pong)) => {
-            // TODO verify pong message
+            // LATER verify pong message
             trace!("received pong: {:?}", pong);
             Ok(())
         }
