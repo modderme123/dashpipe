@@ -57,6 +57,7 @@ pub fn cmd_line_arguments() -> CmdArguments {
         .arg_from_usage("--chart=[chart] 'name of existing chart that will display the data'")
         .arg_from_usage("--no-show 'send the data without displaying it'")
         .arg_from_usage("--once 'do one data transfer, then quit daemon'")
+        .arg_from_usage("--halt 'halt the daemon'")
         .get_matches();
 
     let port_str = arg_matches.value_of("port").unwrap();
@@ -69,7 +70,7 @@ pub fn cmd_line_arguments() -> CmdArguments {
         chart: arg_matches.value_of("chart").map(str::to_owned),
         no_show: arg_matches.is_present("no-show").then(|| true),
         replace: arg_matches.is_present("replace").then(|| true),
-        once: arg_matches.is_present("once").then(|| true),
+        halt: arg_matches.is_present("halt").then(|| true),
         force_new: arg_matches.is_present("force-new").then(|| true),
     };
     let once = arg_matches.is_present("once");
