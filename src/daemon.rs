@@ -3,6 +3,7 @@ use crate::util::{ResultB, EE::MyError};
 use futures_util::StreamExt;
 use futures_util::{stream::FuturesUnordered, SinkExt};
 use log::*;
+use quick_error::quick_error;
 use std::sync::Arc;
 use std::{net::SocketAddr, option::Option};
 use tokio::sync::Mutex;
@@ -37,6 +38,13 @@ struct WsConnection {
     ws: WebSocketStream<TcpStream>,
 }
 
+quick_error! {
+    #[derive(Debug)]
+    pub enum Halt {
+        HaltError { }
+    }
+}
+
 /** A server that listens for connections from command line clients and web browsers.
  * Data from clients is sent to browsers via handle_connect*/
 #[tokio::main]
@@ -65,6 +73,10 @@ async fn server_listen(server: TcpListener, once_only: bool) {
                     waits.push(join_handle);
                 },
                 Ok(None) => {},
+                Err(HaltError) => {
+                    debug!("[daemon loop] halting");
+                    break;}
+                    ,
                 Err(e) => warn!("{:?}", e),
               }
             },
@@ -145,7 +157,6 @@ async fn connect_ws(
         }
     }
 }
-
 /// Route an incoming cli stream to a matching browser web socket if available.
 ///
 /// If no appropriate browser is connected, save the cli stream in Connections awaiting a future
@@ -156,6 +167,11 @@ async fn connect_cli(
 ) -> ResultB<Option<JoinHandle<()>>> {
     let header = proto::parse_cli_header(&mut cli).await?;
     debug!("[daemon] client header: {:?}", &header);
+    let halt = proto::get_bool_field(&header.json, "halt").unwrap_or(false);
+    if halt {
+        debug!("[daemon] returning halt");
+        return Err(Halt::HaltError.into());
+    }
     let dashboard = proto::get_string_field(&header.json, "dashboard");
     let ws_opt = matching_browser_ws(&dashboard, &mut connections.web_sockets).await;
 

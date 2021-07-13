@@ -114,6 +114,10 @@ pub fn get_string_field(value: &serde_json::Value, field: &str) -> Option<String
     value.get(field).and_then(Value::as_str).map(str::to_string)
 }
 
+pub fn get_bool_field(value: &serde_json::Value, field: &str) -> Option<bool> {
+    value.get(field).and_then(Value::as_bool)
+}
+
 /** Read the header sent by the browser to the daemon */
 async fn read_ws_header(ws: &mut WebSocketStream<TcpStream>) -> ResultB<serde_json::Value> {
     let next_msg = ws.next().await.unwrap(); // FIXME
