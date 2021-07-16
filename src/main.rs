@@ -20,18 +20,21 @@ fn main() -> Result<()> {
         once,
     } = client::cmd_line_arguments();
 
+    let halt = pipe_args.halt.unwrap_or(false);
     if daemon_only {
         if let Ok(Fork::Child) = fork() {
             fork_daemon(port, once)?
         }
-    } else if client::client(port, &pipe_args).is_err() {
-        match fork().unwrap() {
-            Fork::Parent(_) => {
-                debug!("Starting daemon and sleeping 500ms"); // TODO fix race condition
-                sleep(Duration::from_millis(500));
-                client::client(port, &pipe_args)?
+    } else if client::client(port, &pipe_args, halt).is_err() {
+        if !halt {
+            match fork().unwrap() {
+                Fork::Parent(_) => {
+                    debug!("Starting daemon and sleeping 500ms"); // TODO fix race condition
+                    sleep(Duration::from_millis(500));
+                    client::client(port, &pipe_args, false)?
+                }
+                Fork::Child => fork_daemon(port, once)?,
             }
-            Fork::Child => fork_daemon(port, once)?,
         }
     }
     Ok(())

@@ -11,7 +11,7 @@ use tokio::{
 use tokio_util::{compat::TokioAsyncWriteCompatExt, io::ReaderStream};
 
 #[tokio::main]
-pub async fn client(port: u16, args: &PipeArgs) -> Result<()> {
+pub async fn client(port: u16, args: &PipeArgs, halt: bool) -> Result<()> {
     let address = proto::server_address(port);
     let mut stream = TcpStream::connect(&address).await?;
     debug!("[client] Connected to daemon {}", address);
@@ -19,11 +19,13 @@ pub async fn client(port: u16, args: &PipeArgs) -> Result<()> {
     let header = proto::client_header_bytes(&args);
     stream.write(&header).await.expect("Couldn't send header");
 
-    let stdin = ReaderStream::new(io::stdin());
-    stdin
-        .forward(stream.compat_write().into_sink())
-        .await
-        .expect("Couldn't forward stream");
+    if !halt {
+        let stdin = ReaderStream::new(io::stdin());
+        stdin
+            .forward(stream.compat_write().into_sink())
+            .await
+            .expect("Couldn't forward stream");
+    }
     Ok(())
 }
 
