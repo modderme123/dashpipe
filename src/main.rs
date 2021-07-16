@@ -1,10 +1,11 @@
 mod client;
+mod cmd_line;
 mod daemon;
 mod proto;
 mod util;
 
 use anyhow::{anyhow, Result};
-use client::CmdArguments;
+use cmd_line::CmdArguments;
 use fork::{chdir, fork, setsid, Fork};
 use log::*;
 use std::{thread::sleep, time::Duration};
@@ -18,7 +19,7 @@ fn main() -> Result<()> {
         port,
         daemon_only,
         once,
-    } = client::cmd_line_arguments();
+    } = cmd_line::cmd_line_arguments();
 
     let halt = pipe_args.halt.unwrap_or(false);
     if daemon_only {
