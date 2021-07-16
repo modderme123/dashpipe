@@ -1,4 +1,5 @@
 use crate::proto::{self};
+use crate::util::AppError;
 use crate::util::AppError::HaltError;
 use anyhow::anyhow;
 use anyhow::Result;
@@ -63,37 +64,19 @@ async fn server_listen(server: TcpListener, once_only: bool) {
         tokio::select! {
             Ok(cxn) = server.accept() => {
               match handle_connect(cxn, connections_ref.clone()).await {
-              // Err(e) if e.is::<AppError::HaltError>()=> {
-                //     match *e {
-                //         case _ => debug!("foo");
-                //         // AppError::StringError(m) => debug!("foo")
-                //     };
-                //     debug!("[daemon loop] halting");
-                //     break;
-                // },
                 Ok(Some(join_handle)) => {
                     waits.push(join_handle);
                 },
                 Ok(None) => {},
-                Err(e) => warn!("{:?}", e),
-                // Err(EE::HaltError) => {
-                //     debug!("[daemon loop] halting");
-                //     break;
-                // },
-                // Err(e) if e.is::<AppError::HaltError>()=> {
-                //     match *e {
-                //         case _ => debug!("foo");
-                //         // AppError::StringError(m) => debug!("foo")
-                //     };
-                //     debug!("[daemon loop] halting");
-                //     break;
-                // },
-                    // match *e {
-                    //     },
-                // EE::HaltError => {
-                //     debug!("[daemon loop] halting");
-                //     break;
-                // },
+                Err(e)  => {
+                    match e.downcast_ref::<AppError>() {
+                        Some(AppError::HaltError) =>  {
+                            debug!("[daemon loop] halting");
+                            break;
+                        }
+                        None => warn!("{:?}", e),
+                    }
+                }
               }
             },
             Some(x) = waits.next() => {
