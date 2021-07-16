@@ -1,4 +1,5 @@
 use crate::proto::{self, PipeArgs};
+use anyhow::Result;
 use clap::{App, Arg};
 use futures_util::{io::AsyncWriteExt as AsyncWriteExt2, StreamExt};
 use log::*;
@@ -8,7 +9,6 @@ use tokio::{
     net::TcpStream,
 };
 use tokio_util::{compat::TokioAsyncWriteCompatExt, io::ReaderStream};
-use anyhow::Result;
 
 #[tokio::main]
 pub async fn client(port: u16, args: &PipeArgs) -> Result<()> {
