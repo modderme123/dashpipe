@@ -3,16 +3,13 @@ mod daemon;
 mod proto;
 mod util;
 
+use anyhow::{anyhow, Result};
 use client::CmdArguments;
 use fork::{chdir, fork, setsid, Fork};
 use log::*;
 use std::{thread::sleep, time::Duration};
-use util::ResultB;
-use util::EE::MyError;
 
-use crate::util::box_error;
-
-fn main() -> ResultB<()> {
+fn main() -> Result<()> {
     env_logger::init();
     // env_logger::builder().filter_level(LevelFilter::Debug).init(); // uncomment to set logging level in code
 
@@ -37,14 +34,13 @@ fn main() -> ResultB<()> {
             Fork::Child => fork_daemon(port, once)?,
         }
     }
-    // result.unwrap_or_else(|e| warn!("{:?}", e));
     Ok(())
 }
 
-fn fork_daemon(port: u16, once: bool) -> ResultB<()> {
+fn fork_daemon(port: u16, once: bool) -> Result<()> {
     debug!("[daemon] starting");
-    setsid().map_err(|_e| box_error(MyError("setsid fail")))?;
-    chdir().map_err(|_e| box_error(MyError("chdir fail")))?;
+    setsid().map_err(|_e| anyhow!("setsid fail"))?;
+    chdir().map_err(|_e| anyhow!("chdir fail"))?;
     // close_fd().unwrap(); // comment out to enable debug logging in daemon
     if let Ok(Fork::Child) = fork() {
         daemon::run_daemon(port, once);

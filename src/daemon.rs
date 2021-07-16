@@ -1,9 +1,10 @@
 use crate::proto::{self};
-use crate::util::{ResultB, EE::MyError};
+use crate::util::AppError::HaltError;
+use anyhow::anyhow;
+use anyhow::Result;
 use futures_util::StreamExt;
 use futures_util::{stream::FuturesUnordered, SinkExt};
 use log::*;
-use quick_error::quick_error;
 use std::sync::Arc;
 use std::{net::SocketAddr, option::Option};
 use tokio::sync::Mutex;
@@ -38,13 +39,6 @@ struct WsConnection {
     ws: WebSocketStream<TcpStream>,
 }
 
-quick_error! {
-    #[derive(Debug)]
-    pub enum Halt {
-        HaltError { }
-    }
-}
-
 /** A server that listens for connections from command line clients and web browsers.
  * Data from clients is sent to browsers via handle_connect*/
 #[tokio::main]
@@ -69,15 +63,37 @@ async fn server_listen(server: TcpListener, once_only: bool) {
         tokio::select! {
             Ok(cxn) = server.accept() => {
               match handle_connect(cxn, connections_ref.clone()).await {
+              // Err(e) if e.is::<AppError::HaltError>()=> {
+                //     match *e {
+                //         case _ => debug!("foo");
+                //         // AppError::StringError(m) => debug!("foo")
+                //     };
+                //     debug!("[daemon loop] halting");
+                //     break;
+                // },
                 Ok(Some(join_handle)) => {
                     waits.push(join_handle);
                 },
                 Ok(None) => {},
-                Err(HaltError) => {
-                    debug!("[daemon loop] halting");
-                    break;}
-                    ,
                 Err(e) => warn!("{:?}", e),
+                // Err(EE::HaltError) => {
+                //     debug!("[daemon loop] halting");
+                //     break;
+                // },
+                // Err(e) if e.is::<AppError::HaltError>()=> {
+                //     match *e {
+                //         case _ => debug!("foo");
+                //         // AppError::StringError(m) => debug!("foo")
+                //     };
+                //     debug!("[daemon loop] halting");
+                //     break;
+                // },
+                    // match *e {
+                    //     },
+                // EE::HaltError => {
+                //     debug!("[daemon loop] halting");
+                //     break;
+                // },
               }
             },
             Some(x) = waits.next() => {
@@ -95,7 +111,7 @@ async fn server_listen(server: TcpListener, once_only: bool) {
 async fn handle_connect(
     cxn: (TcpStream, SocketAddr),
     connections_ref: Arc<Mutex<Connections>>,
-) -> ResultB<Option<JoinHandle<()>>> {
+) -> Result<Option<JoinHandle<()>>> {
     let (stream, _) = cxn;
     let mut connections = connections_ref.lock().await;
 
@@ -141,7 +157,7 @@ async fn forward(cli: CliConnection, mut ws: WebSocketStream<TcpStream>) {
 async fn connect_ws(
     mut ws: WebSocketStream<TcpStream>,
     connections: &mut Connections,
-) -> ResultB<Option<JoinHandle<()>>> {
+) -> Result<Option<JoinHandle<()>>> {
     let header = proto::parse_browser_header(&mut ws).await?;
     debug!("[daemon] parsed ws header {:?}", header);
 
@@ -164,13 +180,13 @@ async fn connect_ws(
 async fn connect_cli(
     mut cli: TcpStream,
     connections: &mut Connections,
-) -> ResultB<Option<JoinHandle<()>>> {
+) -> Result<Option<JoinHandle<()>>> {
     let header = proto::parse_cli_header(&mut cli).await?;
     debug!("[daemon] client header: {:?}", &header);
     let halt = proto::get_bool_field(&header.json, "halt").unwrap_or(false);
     if halt {
         debug!("[daemon] returning halt");
-        return Err(Halt::HaltError.into());
+        return Err(HaltError.into());
     }
     let dashboard = proto::get_string_field(&header.json, "dashboard");
     let ws_opt = matching_browser_ws(&dashboard, &mut connections.web_sockets).await;
@@ -232,7 +248,7 @@ async fn next_matching_ws(
         .map(|i| web_sockets.remove(i).ws)
 }
 
-async fn ping_ws(ws: &mut WebSocketStream<TcpStream>) -> ResultB<()> {
+async fn ping_ws(ws: &mut WebSocketStream<TcpStream>) -> Result<()> {
     ws.send(Message::Ping(vec![])).await?;
     let response = ws.next().await;
     match response {
@@ -243,11 +259,11 @@ async fn ping_ws(ws: &mut WebSocketStream<TcpStream>) -> ResultB<()> {
                 Ok(())
             } else {
                 trace!("received not pong: {:?}", pong);
-                Err(MyError("got message, not pong").into())
+                Err(anyhow!("got message, not pong").into())
             }
         }
         Some(Err(err)) => Err(err.into()),
-        _ => Err(MyError("missing pong").into()),
+        _ => Err(anyhow!("missing pong").into()),
     }
 }
 

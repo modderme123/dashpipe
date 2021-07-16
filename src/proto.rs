@@ -1,4 +1,4 @@
-use crate::util::{ResultB, EE::MyError};
+use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
 use log::*;
 use serde::{Deserialize, Serialize};
@@ -42,7 +42,7 @@ pub fn client_header_bytes(args: &PipeArgs) -> Vec<u8> {
 }
 
 /// Consume a protocol header from a command line client tcp stream.
-pub async fn parse_cli_header(input: &mut TcpStream) -> ResultB<ProtocolHeader> {
+pub async fn parse_cli_header(input: &mut TcpStream) -> Result<ProtocolHeader> {
     let version = input.read_u16().await?;
     assert_eq!(version, PROTOCOL_VERSION);
     let header_size = input.read_u16().await?;
@@ -98,7 +98,7 @@ pub struct BrowserHeader {
 }
 
 /** Parse a single websocket message sent by the browser when it connects */
-pub async fn parse_browser_header(ws: &mut WebSocketStream<TcpStream>) -> ResultB<BrowserHeader> {
+pub async fn parse_browser_header(ws: &mut WebSocketStream<TcpStream>) -> Result<BrowserHeader> {
     let header = read_ws_header(ws).await?;
     Ok(BrowserHeader {
         current_dashboard: get_string_field(&header, "currentDashboard"),
@@ -119,7 +119,7 @@ pub fn get_bool_field(value: &serde_json::Value, field: &str) -> Option<bool> {
 }
 
 /** Read the header sent by the browser to the daemon */
-async fn read_ws_header(ws: &mut WebSocketStream<TcpStream>) -> ResultB<serde_json::Value> {
+async fn read_ws_header(ws: &mut WebSocketStream<TcpStream>) -> Result<serde_json::Value> {
     let next_msg = ws.next().await.unwrap(); // FIXME
     match next_msg {
         Ok(msg) => {
@@ -130,11 +130,11 @@ async fn read_ws_header(ws: &mut WebSocketStream<TcpStream>) -> ResultB<serde_js
         }
         _ => {
             warn!("[daemon] no message received {:?}", next_msg);
-            Err(MyError("no ws message received").into())
+            Err(anyhow!("no ws message received").into())
         }
     }
 }
 
-fn parse_json(text: &str) -> ResultB<serde_json::Value> {
+fn parse_json(text: &str) -> Result<serde_json::Value> {
     serde_json::from_str(text).map_err(|e| e.into())
 }
