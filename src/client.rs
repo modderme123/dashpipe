@@ -20,10 +20,9 @@ pub async fn client(port: u16, args: &PipeArgs, halt: bool) -> Result<()> {
 
     if !halt {
         let stdin = ReaderStream::new(io::stdin());
-        stdin
-            .forward(stream.compat_write().into_sink())
-            .await
-            .expect("Couldn't forward stream");
+        let result = stdin.forward(stream.compat_write().into_sink()).await;
+        return result.map_err(|e| e.into());
+    } else {
+        Ok(())
     }
-    Ok(())
 }
