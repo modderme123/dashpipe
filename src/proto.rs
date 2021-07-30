@@ -65,6 +65,7 @@ pub struct PipeArgs {
     pub kind: String,
     pub dashboard: Option<String>, // This is only needed for client to daemon
     pub halt: Option<bool>,        // This is only needed for client to daemon
+    pub file: Option<String>,        // This is only needed for client to daemon
     pub name: Option<String>,
     pub chart: Option<String>,
     #[serde(rename = "noShow")]

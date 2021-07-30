@@ -2,9 +2,10 @@ use crate::proto::{self, PipeArgs};
 use anyhow::Result;
 use futures_util::{io::AsyncWriteExt as AsyncWriteExt2, StreamExt};
 use log::*;
+use std::{borrow::Borrow};
 use tokio::{
     self,
-    io::{self, AsyncWriteExt},
+    io::{self, AsyncBufReadExt, AsyncWriteExt},
     net::TcpStream,
 };
 use tokio_util::{compat::TokioAsyncWriteCompatExt, io::ReaderStream};
@@ -14,15 +15,34 @@ pub async fn client(port: u16, args: &PipeArgs, halt: bool) -> Result<()> {
     let address = proto::server_address(port);
     let mut stream = TcpStream::connect(&address).await?;
     debug!("[client] Connected to daemon {}", address);
-
     let header = proto::client_header_bytes(&args);
     stream.write(&header).await.expect("Couldn't send header");
 
-    if !halt {
+    if halt {
+        return Ok(());
+    } else if let Some(file_name) = args.file.borrow() {
+        return stream_file_by_line(&mut stream, file_name).await;
+    } else {
         let stdin = ReaderStream::new(io::stdin());
         let result = stdin.forward(stream.compat_write().into_sink()).await;
         return result.map_err(|e| e.into());
-    } else {
-        Ok(())
     }
+}
+
+async fn stream_file_by_line(to_stream: &mut TcpStream, file_name: &String) -> Result<()> {
+    let file = tokio::fs::File::open(file_name).await?;
+    let mut reader = tokio::io::BufReader::new(file);
+
+    loop {
+        let mut line = String::new();
+        let read = reader.read_line(&mut line).await?;
+        if read == 0 {
+            break;
+        } else {
+            let s: &[u8] = line.as_ref();
+            debug!("read line: {:?}", s);
+            to_stream.write(s).await?;
+        }
+    }
+    Ok(())
 }
