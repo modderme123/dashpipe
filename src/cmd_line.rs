@@ -1,6 +1,5 @@
 use crate::proto::PipeArgs;
 use clap::{App, Arg};
-use log::debug;
 
 pub struct CmdArguments {
     pub pipe_args: PipeArgs,
@@ -56,7 +55,6 @@ pub fn cmd_line_arguments() -> CmdArguments {
         .value_of("trickle")
         .and_then(|src| u16::from_str_radix(src, 10).ok());
 
-    debug!("trickle: {:?}", trickle);
     CmdArguments {
         pipe_args,
         port,
