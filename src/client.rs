@@ -7,6 +7,7 @@ use tokio::{
     self,
     io::{self, AsyncBufReadExt, AsyncWriteExt},
     net::TcpStream,
+    time::{sleep, Duration},
 };
 use tokio_util::{compat::TokioAsyncWriteCompatExt, io::ReaderStream};
 
@@ -22,7 +23,7 @@ pub async fn client(command_args: &CmdArguments) -> Result<()> {
     if halt {
         return Ok(());
     } else if let Some(file_name) = command_args.file.borrow() {
-        return stream_file_by_line(&mut stream, file_name).await;
+        return stream_file_by_line(&mut stream, file_name, &command_args.trickle).await;
     } else {
         let stdin = ReaderStream::new(io::stdin());
         let result = stdin.forward(stream.compat_write().into_sink()).await;
@@ -30,7 +31,11 @@ pub async fn client(command_args: &CmdArguments) -> Result<()> {
     }
 }
 
-async fn stream_file_by_line(to_stream: &mut TcpStream, file_name: &String) -> Result<()> {
+async fn stream_file_by_line(
+    to_stream: &mut TcpStream,
+    file_name: &String,
+    trickle: &Option<u16>,
+) -> Result<()> {
     let file = tokio::fs::File::open(file_name).await?;
     let mut reader = tokio::io::BufReader::new(file);
 
@@ -43,6 +48,9 @@ async fn stream_file_by_line(to_stream: &mut TcpStream, file_name: &String) -> R
             let s: &[u8] = line.as_ref();
             debug!("read line: {:?}", s);
             to_stream.write(s).await?;
+            if let Some(delay) = trickle {
+                sleep(Duration::from_millis(u64::from(*delay))).await;
+            }
         }
     }
     Ok(())
