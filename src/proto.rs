@@ -63,9 +63,8 @@ pub async fn parse_cli_header(input: &mut TcpStream) -> Result<ProtocolHeader> {
 #[derive(Serialize, Deserialize)]
 pub struct PipeArgs {
     pub kind: String,
-    pub dashboard: Option<String>, // This is only needed for client to daemon
-    pub halt: Option<bool>,        // This is only needed for client to daemon
-    pub file: Option<String>,        // This is only needed for client to daemon
+    pub dashboard: Option<String>, // only needed for client to daemon
+    pub halt: Option<bool>,        // only needed for client to daemon
     pub name: Option<String>,
     pub chart: Option<String>,
     #[serde(rename = "noShow")]

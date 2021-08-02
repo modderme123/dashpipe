@@ -6,6 +6,7 @@ pub struct CmdArguments {
     pub port: u16,
     pub daemon_only: bool,
     pub once: bool,
+    pub file: Option<String>,
 }
 
 pub fn cmd_line_arguments() -> CmdArguments {
@@ -30,6 +31,9 @@ pub fn cmd_line_arguments() -> CmdArguments {
         .arg_from_usage("--no-show 'send the data without displaying it'")
         .arg_from_usage("--once 'do one data transfer, then quit daemon'")
         .arg_from_usage("--file=[file] 'read data from a file rather than standard input'")
+        .arg_from_usage(
+            "--trickle=[milliseconds] 'delay between lines (to simulate slow data sources)'",
+        )
         .arg_from_usage("--halt 'halt the daemon'")
         .get_matches();
 
@@ -39,14 +43,14 @@ pub fn cmd_line_arguments() -> CmdArguments {
     let pipe_args = PipeArgs {
         kind: "data".to_string(),
         name: arg_matches.value_of("name").map(str::to_owned),
-        file: arg_matches.value_of("file").map(str::to_owned),
         dashboard: arg_matches.value_of("dashboard").map(str::to_owned),
         chart: arg_matches.value_of("chart").map(str::to_owned),
         no_show: arg_matches.is_present("no-show").then(|| true),
         replace: arg_matches.is_present("replace").then(|| true),
-        halt: arg_matches.is_present("halt").then(|| true),
         force_new: arg_matches.is_present("force-new").then(|| true),
+        halt: arg_matches.is_present("halt").then(|| true),
     };
+
     let once = arg_matches.is_present("once");
 
     CmdArguments {
@@ -54,5 +58,6 @@ pub fn cmd_line_arguments() -> CmdArguments {
         port,
         daemon_only,
         once,
+        file: arg_matches.value_of("file").map(str::to_owned),
     }
 }
