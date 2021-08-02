@@ -1,5 +1,6 @@
 use crate::proto::PipeArgs;
 use clap::{App, Arg};
+use log::debug;
 
 pub struct CmdArguments {
     pub pipe_args: PipeArgs,
@@ -7,6 +8,7 @@ pub struct CmdArguments {
     pub daemon_only: bool,
     pub once: bool,
     pub file: Option<String>,
+    pub trickle: Option<u16>,
 }
 
 pub fn cmd_line_arguments() -> CmdArguments {
@@ -50,14 +52,17 @@ pub fn cmd_line_arguments() -> CmdArguments {
         force_new: arg_matches.is_present("force-new").then(|| true),
         halt: arg_matches.is_present("halt").then(|| true),
     };
+    let trickle = arg_matches
+        .value_of("trickle")
+        .and_then(|src| u16::from_str_radix(src, 10).ok());
 
-    let once = arg_matches.is_present("once");
-
+    debug!("trickle: {:?}", trickle);
     CmdArguments {
         pipe_args,
         port,
         daemon_only,
-        once,
+        once: arg_matches.is_present("once"),
         file: arg_matches.value_of("file").map(str::to_owned),
+        trickle,
     }
 }
