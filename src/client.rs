@@ -21,13 +21,15 @@ pub async fn client(command_args: &CmdArguments) -> Result<()> {
     let halt = command_args.pipe_args.halt.unwrap_or(false);
 
     if halt {
-        return Ok(());
+        Ok(())
     } else if let Some(file_name) = command_args.file.borrow() {
-        return stream_file_by_line(&mut stream, file_name, &command_args.trickle).await;
+        stream_file_by_line(&mut stream, file_name, &command_args.trickle).await
     } else {
         let stdin = ReaderStream::new(io::stdin());
-        let result = stdin.forward(stream.compat_write().into_sink()).await;
-        return result.map_err(|e| e.into());
+        stdin
+            .forward(stream.compat_write().into_sink())
+            .await
+            .map_err(|e| e.into())
     }
 }
 
