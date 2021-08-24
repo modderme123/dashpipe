@@ -1,5 +1,5 @@
 use crate::{cmd_line::CmdArguments, proto};
-use anyhow::Result;
+use anyhow::{Error, Result};
 use futures_util::{io::AsyncWriteExt as AsyncWriteExt2, StreamExt};
 use log::*;
 use std::borrow::Borrow;
@@ -23,13 +23,28 @@ pub async fn client(command_args: &CmdArguments) -> Result<()> {
     if halt {
         Ok(())
     } else if let Some(file_name) = command_args.file.borrow() {
-        stream_file_by_line(&mut stream, file_name, &command_args.trickle).await
+        stream_file_by_line(&mut stream, file_name, &command_args.trickle)
+            .await
+            .or_else(|e| {
+                debug!(
+                    "[client] line forwarding error: {} (prehaps the browser restarted?)",
+                    e
+                );
+                Ok(())
+            })
     } else {
         let stdin = ReaderStream::new(io::stdin());
         stdin
             .forward(stream.compat_write().into_sink())
             .await
             .map_err(|e| e.into())
+            .or_else(|e: Error| {
+                debug!(
+                    "[client] stdin forwarding error: {} (prehaps the browser restarted?)",
+                    e
+                );
+                Ok(())
+            })
     }
 }
 
