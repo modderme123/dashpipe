@@ -63,7 +63,7 @@ async fn stream_file_by_line(
             break;
         } else {
             let s: &[u8] = line.as_ref();
-            debug!("read line: {:?}", s);
+            debug!("[client] stream line: {:?}", s);
             to_stream.write(s).await?;
             if let Some(delay) = trickle {
                 sleep(Duration::from_millis(u64::from(*delay))).await;
