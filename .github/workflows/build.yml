@@ -12,15 +12,16 @@ env:
 jobs:
   build:
     runs-on: ${{ matrix.os }}
-    matrix:
-      os: [ubuntu-latest, macos-latest]
-      include: 
-        - os: macos-latest
-          suffix: -mac
-        - os: ubuntu-latest
-          suffix: -linux
-    env: 
-      zip_file: target/release/deco${{ matrix.suffix }}.zip 
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: macos-latest
+            suffix: -mac
+          - os: ubuntu-latest
+            suffix: -linux
+    env:
+      zip_file: target/release/deco${{ matrix.suffix }}.zip
 
     steps:
       - uses: actions/checkout@v2
