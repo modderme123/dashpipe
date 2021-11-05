@@ -21,7 +21,7 @@ jobs:
           - os: ubuntu-latest
             suffix: -linux
     env:
-      zip_file: target/release/deco${{ matrix.suffix }}.zip
+      zip_file: deco${{ matrix.suffix }}.zip
 
     steps:
       - uses: actions/checkout@v2
@@ -45,12 +45,13 @@ jobs:
 
       - name: package binary
         run: |
-          cp target/release/dashpipe target/release/deco
-          zip ${{ env.zip_file }} target/release/deco
+          cd target/release
+          cp dashpipe deco
+          zip ${{ env.zip_file }} deco
 
       - name: Release
         uses: softprops/action-gh-release@v0.1.13
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            ${{ env.zip_file }}
+            target/release/${{ env.zip_file }}
