@@ -2,7 +2,6 @@ name: dashpipe-build
 
 on:
   push:
-    branches: [test-workflow]
     tags:
       - "v*.*.*"
 
